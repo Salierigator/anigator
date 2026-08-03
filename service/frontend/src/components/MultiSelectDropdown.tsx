@@ -9,8 +9,6 @@ interface MultiSelectProps {
   onChange: (selected: string[]) => void;
   showSearch?: boolean;
   single?: boolean;
-  onOpenStateChange?: (isOpen: boolean) => void;
-  isCompact?: boolean;
   hideLabel?: boolean;
   hideAllOption?: boolean;
 }
@@ -22,8 +20,6 @@ export function MultiSelectDropdown({
   onChange,
   showSearch = false,
   single = false,
-  onOpenStateChange,
-  isCompact = false,
   hideLabel = false,
   hideAllOption = false
 }: MultiSelectProps) {
@@ -35,9 +31,6 @@ export function MultiSelectDropdown({
 
   const handleSetIsOpen = (open: boolean) => {
     setIsOpen(open);
-    if (onOpenStateChange) {
-      onOpenStateChange(open);
-    }
     if (!open && closeTimerRef.current) {
       clearTimeout(closeTimerRef.current);
       closeTimerRef.current = null;
@@ -130,58 +123,30 @@ export function MultiSelectDropdown({
     : orderedOptions;
 
   const showAllOption = single && !label.startsWith('Show') && !hideAllOption;
-  const isActive = selected.length > 0;
 
   return (
     <div
-      className={`relative flex-1 transition-all duration-300 ease-in-out motion-reduce:transition-none ${
-        isCompact ? 'min-w-[100px] max-w-[200px] flex-shrink-0' : 'min-w-0'
-      }`}
+      className="relative flex-1 min-w-0"
       ref={dropdownRef}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
     >
       {!hideLabel && (
-        <span
-          className={`block font-semibold text-gray-500 uppercase tracking-wider transition-all duration-300 ease-in-out motion-reduce:transition-none ${
-            isCompact
-              ? 'h-0 overflow-hidden opacity-0 mb-0 pointer-events-none text-[0px]'
-              : 'text-xs mb-1'
-          }`}
-        >
+        <span className="block font-semibold text-gray-500 uppercase tracking-wider text-xs mb-1">
           {label}
         </span>
       )}
       <button
         type="button"
         onClick={() => handleSetIsOpen(!isOpen)}
-        className={`w-full border flex items-center justify-between focus:outline-none focus:ring-1 focus:ring-gray-900 cursor-pointer transition-all duration-300 ease-in-out motion-reduce:transition-none ${
-          isCompact ? 'px-2 py-1 text-xs' : 'px-3 py-2 text-sm'
-        } ${
-          isCompact
-            ? isActive
-              ? 'border-gray-900 text-gray-900 font-semibold bg-white'
-              : 'border-gray-300 text-gray-500 bg-white hover:border-gray-400'
-            : 'border-gray-300 text-gray-900 bg-white hover:border-gray-400'
-        }`}
+        className="w-full border flex items-center justify-between focus:outline-none focus:ring-1 focus:ring-gray-900 cursor-pointer transition-all duration-300 ease-in-out motion-reduce:transition-none px-3 py-2 text-sm border-gray-300 text-gray-900 bg-white hover:border-gray-400"
       >
         <span className="truncate flex items-center">
-          {isCompact && (
-            <span className={`text-[10px] uppercase tracking-wider mr-1.5 flex-shrink-0 ${
-              isActive ? 'text-gray-900 font-bold' : 'text-gray-400 font-bold'
-            }`}>
-              {label}:
-            </span>
-          )}
-          <span className={`truncate text-left ${isCompact && isActive ? 'font-semibold' : ''}`}>
+          <span className="truncate text-left">
             {getButtonText()}
           </span>
         </span>
-        <ChevronDown className={`w-3.5 h-3.5 ml-1 flex-shrink-0 ${
-          isCompact
-            ? isActive ? 'text-gray-900' : 'text-gray-400'
-            : 'text-gray-500'
-        }`} />
+        <ChevronDown className="w-3.5 h-3.5 ml-1 flex-shrink-0 text-gray-500" />
       </button>
 
       {isOpen && (
@@ -246,3 +211,4 @@ export function MultiSelectDropdown({
     </div>
   );
 }
+

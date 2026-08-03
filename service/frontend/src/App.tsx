@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { SearchForm } from './components/SearchForm';
 import { AnimeModal } from './components/AnimeModal';
 import { ResultsSection } from './components/ResultsSection';
+import { ActiveFilterChips } from './components/ActiveFilterChips';
 import { fetchPostersAPI, pingHealthAPI } from './api';
 import { useTabPrefs } from './hooks/useTabPrefs';
 import { useGuestState } from './hooks/useGuestState';
@@ -153,6 +154,8 @@ function App() {
                 <p>Based on {currentPool.meta.total_entries} entries from your list</p>
               )}
             </div>
+
+            <ActiveFilterChips prefs={prefs} updatePrefs={updatePrefs} />
 
             <ResultsSection
               variant="main"
