@@ -1,7 +1,7 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 import { useState, useRef, useEffect } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
-import { Search, X, User, ExternalLink, HelpCircle, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
+import { Search, X, User, ExternalLink, HelpCircle, CheckCircle2, XCircle, Loader2, Check } from 'lucide-react';
 import { searchAnimeAPI, checkUsernameExistsAPI } from '../api';
 import { FilterPanel } from './FilterPanel';
 import type { FacetOptions, SearchResultItem, Tab, TabPrefs } from '../types';
@@ -51,9 +51,11 @@ export function SearchForm({
   const [guestResults, setGuestResults] = useState<SearchResultItem[]>([]);
   const [guestSearching, setGuestSearching] = useState(false);
   const [showGuestDropdown, setShowGuestDropdown] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
   const searchDropdownRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const queryCacheRef = useRef<Map<string, SearchResultItem[]>>(new Map());
+  const itemRefs = useRef<Map<number, HTMLButtonElement>>(new Map());
 
   // Username validation
   useEffect(() => {
@@ -91,6 +93,7 @@ export function SearchForm({
     const handleClickOutside = (event: MouseEvent) => {
       if (searchDropdownRef.current && !searchDropdownRef.current.contains(event.target as Node)) {
         setShowGuestDropdown(false);
+        setActiveIndex(-1);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -100,7 +103,8 @@ export function SearchForm({
   // Guest Search
   useEffect(() => {
     if (activeTab !== 'guest' || guestQuery.length < 2) {
-      if (!guestSearching) setGuestResults([]); // keep results if still loading
+      setGuestResults([]);
+      setGuestSearching(false);
       setShowGuestDropdown(false);
       return;
     }
@@ -137,13 +141,31 @@ export function SearchForm({
           setGuestSearching(false);
         }
       }
-    }, 400);
+    }, 250);
 
     return () => {
       clearTimeout(timer);
       abortController.abort();
     };
   }, [guestQuery, activeTab]);
+
+  const selectableItems = guestResults.filter(
+    item => item.in_corpus && !guestPicks.some(p => p.mal_id === item.mal_id)
+  );
+
+  useEffect(() => {
+    setActiveIndex(-1);
+  }, [guestResults, showGuestDropdown]);
+
+  useEffect(() => {
+    if (activeIndex >= 0 && selectableItems[activeIndex]) {
+      const malId = selectableItems[activeIndex].mal_id;
+      const el = itemRefs.current.get(malId);
+      if (el) {
+        el.scrollIntoView({ block: 'nearest' });
+      }
+    }
+  }, [activeIndex, selectableItems]);
 
   const addGuestPick = (item: SearchResultItem) => {
     if (!item.in_corpus) return;
@@ -152,10 +174,36 @@ export function SearchForm({
     }
     setGuestQuery('');
     setShowGuestDropdown(false);
+    setActiveIndex(-1);
   };
 
   const removeGuestPick = (malId: number) => {
     setGuestPicks(guestPicks.filter(p => p.mal_id !== malId));
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'ArrowDown') {
+      if (!showGuestDropdown && guestQuery.length >= 2 && guestResults.length > 0) {
+        setShowGuestDropdown(true);
+      }
+      if (selectableItems.length > 0) {
+        e.preventDefault();
+        setActiveIndex(prev => (prev < selectableItems.length - 1 ? prev + 1 : 0));
+      }
+    } else if (e.key === 'ArrowUp') {
+      if (selectableItems.length > 0 && showGuestDropdown) {
+        e.preventDefault();
+        setActiveIndex(prev => (prev > 0 ? prev - 1 : selectableItems.length - 1));
+      }
+    } else if (e.key === 'Enter') {
+      if (showGuestDropdown && activeIndex >= 0 && activeIndex < selectableItems.length) {
+        e.preventDefault();
+        addGuestPick(selectableItems[activeIndex]);
+      }
+    } else if (e.key === 'Escape') {
+      setShowGuestDropdown(false);
+      setActiveIndex(-1);
+    }
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -250,6 +298,15 @@ export function SearchForm({
               </div>
               <input
                 type="text"
+                role="combobox"
+                aria-expanded={showGuestDropdown && (guestResults.length > 0 || guestSearching)}
+                aria-controls="guest-search-listbox"
+                aria-activedescendant={
+                  showGuestDropdown && activeIndex >= 0 && selectableItems[activeIndex]
+                    ? `guest-option-${selectableItems[activeIndex].mal_id}`
+                    : undefined
+                }
+                aria-autocomplete="list"
                 value={guestQuery}
                 onChange={(e) => {
                   setGuestQuery(e.target.value);
@@ -258,6 +315,7 @@ export function SearchForm({
                 onFocus={() => {
                   if (guestQuery.length >= 2 && guestResults.length > 0) setShowGuestDropdown(true);
                 }}
+                onKeyDown={handleKeyDown}
                 placeholder="Search anime to add..."
                 className="w-full pl-11 pr-10 py-3 bg-white border border-gray-300 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-gray-900 focus:border-gray-900 sm:text-base transition-shadow shadow-sm rounded-none"
               />
@@ -267,42 +325,85 @@ export function SearchForm({
 
               {/* Guest Search Dropdown */}
               {showGuestDropdown && (guestResults.length > 0 || guestSearching) && (
-                <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-300 shadow-xl z-50 max-h-80 overflow-y-auto">
-                  {guestResults.map(item => (
-                    <button
-                      key={item.mal_id}
-                      type="button"
-                      onClick={() => addGuestPick(item)}
-                      disabled={!item.in_corpus}
-                      className={`w-full flex items-center gap-3 p-2 text-left border-b border-gray-100 last:border-0 transition-colors ${
-                        !item.in_corpus ? 'opacity-50 cursor-not-allowed bg-gray-50' : 'hover:bg-gray-50 cursor-pointer'
-                      }`}
-                    >
-                      {item.image_url ? (
-                        <img src={item.image_url} alt="" className="w-10 h-14 object-cover flex-shrink-0 bg-gray-200" />
-                      ) : (
-                        <div className="w-10 h-14 bg-gray-200 flex-shrink-0" />
-                      )}
-                      <div className="flex-1 min-w-0">
-                        <div className="font-semibold text-gray-900 truncate">{item.title}</div>
-                        {item.title_english && <div className="text-xs text-gray-500 truncate">{item.title_english}</div>}
-                        <div className="text-[10px] text-gray-400 mt-1 uppercase flex items-center gap-2">
-                          <span>{item.type || '?'} {item.year ? `· ${item.year}` : ''}</span>
-                          {item.mal_score && <span>★ {item.mal_score}</span>}
-                        </div>
-                      </div>
-                      {!item.in_corpus && (
-                        <div className="flex-shrink-0 px-2 group relative">
-                          <HelpCircle className="w-4 h-4 text-gray-400" />
-                          <div className="hidden group-hover:block absolute right-0 top-6 w-32 bg-gray-900 text-white text-[10px] p-1.5 z-10 text-center pointer-events-none">
-                            Not in model yet
+                <div
+                  id="guest-search-listbox"
+                  role="listbox"
+                  aria-busy={guestSearching}
+                  className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-300 shadow-xl z-50 max-h-80 overflow-y-auto"
+                >
+                  {guestResults.map(item => {
+                    const isAlreadyPicked = guestPicks.some(p => p.mal_id === item.mal_id);
+                    const isDisabled = !item.in_corpus || isAlreadyPicked;
+                    const isHighlighted = showGuestDropdown && activeIndex >= 0 && selectableItems[activeIndex]?.mal_id === item.mal_id;
+
+                    return (
+                      <button
+                        key={item.mal_id}
+                        id={`guest-option-${item.mal_id}`}
+                        type="button"
+                        role="option"
+                        aria-selected={isHighlighted}
+                        ref={(el) => {
+                          if (el) itemRefs.current.set(item.mal_id, el);
+                          else itemRefs.current.delete(item.mal_id);
+                        }}
+                        onPointerDown={(e) => {
+                          e.preventDefault();
+                          if (!isDisabled) addGuestPick(item);
+                        }}
+                        disabled={isDisabled}
+                        className={`w-full flex items-center gap-3 p-2 text-left border-b border-gray-100 last:border-0 transition-colors ${
+                          isDisabled
+                            ? 'opacity-50 cursor-not-allowed bg-gray-50'
+                            : isHighlighted
+                            ? 'bg-gray-100 cursor-pointer'
+                            : 'hover:bg-gray-50 cursor-pointer'
+                        }`}
+                      >
+                        {item.image_url ? (
+                          <img src={item.image_url} alt="" className="w-10 h-14 object-cover flex-shrink-0 bg-gray-200" />
+                        ) : (
+                          <div className="w-10 h-14 bg-gray-200 flex-shrink-0" />
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <div className="font-semibold text-gray-900 truncate">{item.title}</div>
+                          {item.title_english && <div className="text-xs text-gray-500 truncate">{item.title_english}</div>}
+                          <div className="text-[10px] text-gray-400 mt-1 uppercase flex items-center gap-2">
+                            <span>{item.type || '?'} {item.year ? `· ${item.year}` : ''}</span>
+                            {item.mal_score && <span>★ {item.mal_score}</span>}
                           </div>
                         </div>
-                      )}
-                    </button>
-                  ))}
+                        {!item.in_corpus && (
+                          <div className="flex-shrink-0 px-2 group relative">
+                            <HelpCircle className="w-4 h-4 text-gray-400" />
+                            <div className="hidden group-hover:block absolute right-0 top-6 w-32 bg-gray-900 text-white text-[10px] p-1.5 z-10 text-center pointer-events-none">
+                              Not in model yet
+                            </div>
+                          </div>
+                        )}
+                        {isAlreadyPicked && (
+                          <div className="flex-shrink-0 px-2">
+                            <Check className="w-4 h-4 text-gray-500" />
+                          </div>
+                        )}
+                      </button>
+                    );
+                  })}
                   {guestSearching && guestResults.length === 0 && (
-                    <div className="p-4 text-center text-sm text-gray-500">Searching...</div>
+                    <div aria-hidden="true" className="animate-pulse">
+                      {[...Array(5)].map((_, i) => (
+                        <div
+                          key={i}
+                          className="w-full flex items-center gap-3 p-2 border-b border-gray-100 last:border-0"
+                        >
+                          <div className="w-10 h-14 bg-gray-200 flex-shrink-0" />
+                          <div className="flex-1 min-w-0">
+                            <div className="h-3 bg-gray-200 w-2/3" />
+                            <div className="h-2 bg-gray-100 w-1/3 mt-2" />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   )}
                 </div>
               )}
@@ -341,25 +442,40 @@ export function SearchForm({
           {guestPicks.length === 0 ? (
             <div className="text-center text-sm text-gray-400">Search and pick at least 1 anime. (Recommended: 5+)</div>
           ) : (
-            <div className="flex flex-wrap w-full gap-2">
-              {guestPicks.map(pick => (
-                <div key={pick.mal_id} className="flex items-center bg-white border border-gray-300 pr-1 overflow-hidden h-10 group">
-                  {pick.image_url ? (
-                    <img src={pick.image_url} alt="" className="h-full w-7 object-cover mr-2" />
-                  ) : (
-                    <div className="h-full w-7 bg-gray-200 mr-2" />
-                  )}
-                  <span className="text-xs font-medium max-w-[120px] truncate mr-2" title={pick.title}>{pick.title}</span>
+            <>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-gray-500">{guestPicks.length} selected</span>
+                <button
+                  type="button"
+                  onClick={() => setGuestPicks([])}
+                  className="text-gray-500 hover:text-gray-900 underline underline-offset-2 cursor-pointer transition-colors"
+                >
+                  Clear all
+                </button>
+              </div>
+              {/* ô đều nhau + click cả chip = xoá: nút X 14px dịch chỗ sau mỗi lần xoá thì
+                  không spam click liên tục được */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 w-full gap-2">
+                {guestPicks.map(pick => (
                   <button
+                    key={pick.mal_id}
                     type="button"
                     onClick={() => removeGuestPick(pick.mal_id)}
-                    className="p-1 text-gray-400 hover:text-gray-900 hover:bg-gray-100 cursor-pointer transition-colors"
+                    title={`Remove ${pick.title}`}
+                    aria-label={`Remove ${pick.title}`}
+                    className="flex items-center w-full bg-white border border-gray-300 pr-2 overflow-hidden h-10 group cursor-pointer hover:border-gray-900 hover:bg-gray-50 transition-colors"
                   >
-                    <X className="w-3.5 h-3.5" />
+                    {pick.image_url ? (
+                      <img src={pick.image_url} alt="" className="h-full w-7 object-cover mr-2 flex-shrink-0" />
+                    ) : (
+                      <div className="h-full w-7 bg-gray-200 mr-2 flex-shrink-0" />
+                    )}
+                    <span className="flex-1 min-w-0 text-xs font-medium truncate text-left mr-2">{pick.title}</span>
+                    <X className="w-3.5 h-3.5 flex-shrink-0 text-gray-400 group-hover:text-gray-900 transition-colors" />
                   </button>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            </>
           )}
         </div>
       )}
