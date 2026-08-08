@@ -7,7 +7,8 @@ import type { UpdatePrefs } from './useTabPrefs';
 export function useResultsPipeline(
   currentPool: RecommendResponse | null,
   prefs: TabPrefs,
-  updatePrefs: UpdatePrefs
+  updatePrefs: UpdatePrefs,
+  watchedSet: Set<number>
 ) {
   const facetOptions = useMemo<FacetOptions>(() => {
     if (!currentPool) return { genres: [], themes: [], studios: [], types: [] };
@@ -64,15 +65,22 @@ export function useResultsPipeline(
     return true;
   }, [prefs]);
 
+  // Seen ("hide & don't recommend") ẩn NGAY ở client — pool sâu 500 item nên vẫn đủ lấp chỗ
+  // trống. exclude_ids chỉ đi kèm lần search kế tiếp, khỏi phải round-trip mỗi lần bấm mắt.
+  const visible = useCallback(
+    (item: AnimeItem) => !watchedSet.has(item.mal_id) && matchFilters(item),
+    [watchedSet, matchFilters]
+  );
+
   const filteredMain = useMemo(() => {
     if (!currentPool) return [];
-    return currentPool.main.filter(matchFilters);
-  }, [currentPool, matchFilters]);
+    return currentPool.main.filter(visible);
+  }, [currentPool, visible]);
 
   const filteredCold = useMemo(() => {
     if (!currentPool) return [];
-    return currentPool.cold.filter(matchFilters);
-  }, [currentPool, matchFilters]);
+    return currentPool.cold.filter(visible);
+  }, [currentPool, visible]);
 
   const sortedMain = useMemo(() => {
     return sortAnimeItems(filteredMain, prefs.sortBy, prefs.sortAsc);

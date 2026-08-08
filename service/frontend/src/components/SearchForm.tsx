@@ -299,13 +299,14 @@ export function SearchForm({
                 {indexLoading && <Loader2 className="w-4 h-4 text-gray-400 animate-spin" />}
               </div>
 
-              {/* Guest Search Dropdown */}
+              {/* Guest Search Dropdown — overscroll-contain: cuộn hết list thì DỪNG,
+                  không kéo lây cả trang phía sau (scroll chaining) */}
               {showGuestDropdown && (
                 <div
                   id="guest-search-listbox"
                   role="listbox"
                   aria-busy={indexLoading}
-                  className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-300 shadow-xl z-50 max-h-80 overflow-y-auto"
+                  className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-300 shadow-xl z-50 max-h-80 overflow-y-auto overscroll-contain"
                 >
                   {guestResults.map(item => {
                     const isAlreadyPicked = guestPicks.some(p => p.mal_id === item.mal_id);

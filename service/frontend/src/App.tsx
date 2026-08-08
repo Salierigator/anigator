@@ -32,7 +32,7 @@ function App() {
 
   const currentPool = tabPools[activeTab];
   const { facetOptions, filteredMain, filteredCold, displayedMain, displayedCold, isFiltered } =
-    useResultsPipeline(currentPool, prefs, updatePrefs);
+    useResultsPipeline(currentPool, prefs, updatePrefs, watchedSet);
 
   useUrlSync({
     hasInitializedRef,
@@ -52,15 +52,9 @@ function App() {
 
   const [selectedAnime, setSelectedAnime] = useState<AnimeItem | null>(null);
 
-  // Automatic search for guest mode when active tab, picks, or watched set changes
-  useEffect(() => {
-    if (!hasInitializedRef.current) return;
-    if (activeTab !== 'guest') return;
-
-    const pickIds = guestPicks.map(p => p.mal_id);
-    handleSearch({ mal_ids: pickIds.length > 0 ? pickIds : undefined }, 'guest');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, guestPicks, watchedSet]);
+  // Guest mode KHÔNG tự search khi picks/watchedSet đổi: sửa list thoải mái, chỉ bắn request
+  // lúc bấm nút submit (hoặc deep-link ?ids= lúc mount, do useUrlSync gọi). Trước đây mỗi lần
+  // tim/bỏ tim/bấm Seen là 1 POST /api/recommend.
 
   useEffect(() => {
     pingHealthAPI();

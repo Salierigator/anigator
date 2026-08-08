@@ -53,7 +53,9 @@ export function AnimeCard({ anime, rank, onClick, entry, isGuestMode, isSeen, is
 
   return (
     <div
-      className={`flex flex-col border border-gray-200 bg-white hover:shadow-md transition-shadow relative group ${onClick ? 'cursor-pointer' : ''}`}
+      className={`flex flex-col border hover:shadow-md transition-shadow relative group ${
+        isLoved ? 'border-red-200 bg-red-50/60' : 'border-gray-200 bg-white'
+      } ${onClick ? 'cursor-pointer' : ''}`}
       onClick={onClick}
     >
       {isGuestMode && (
