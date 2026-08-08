@@ -2,8 +2,10 @@
 import { useState, useRef, useEffect } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import { Search, X, User, ExternalLink, HelpCircle, CheckCircle2, XCircle, Loader2, Check } from 'lucide-react';
-import { searchAnimeAPI, checkUsernameExistsAPI } from '../api';
+import { checkUsernameExistsAPI } from '../api';
 import { FilterPanel } from './FilterPanel';
+import { loadAnimeIndex } from '../utils/animeIndex';
+import type { AnimeSearcher } from '../utils/animeIndex';
 import type { FacetOptions, SearchResultItem, Tab, TabPrefs } from '../types';
 import type { UpdatePrefs } from '../hooks/useTabPrefs';
 
@@ -49,12 +51,11 @@ export function SearchForm({
   // Guest mode state
   const [guestQuery, setGuestQuery] = useState('');
   const [guestResults, setGuestResults] = useState<SearchResultItem[]>([]);
-  const [guestSearching, setGuestSearching] = useState(false);
   const [showGuestDropdown, setShowGuestDropdown] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
+  const [searchIndex, setSearchIndex] = useState<AnimeSearcher | null>(null);
+  const [indexFailed, setIndexFailed] = useState(false);
   const searchDropdownRef = useRef<HTMLDivElement>(null);
-  const abortControllerRef = useRef<AbortController | null>(null);
-  const queryCacheRef = useRef<Map<string, SearchResultItem[]>>(new Map());
   const itemRefs = useRef<Map<number, HTMLButtonElement>>(new Map());
 
   // Username validation
@@ -100,58 +101,33 @@ export function SearchForm({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Guest Search
+  // Tải index lúc mở tab guest (~1.2 MB gzip, 1 lần / phiên) — không tải ở tab username.
   useEffect(() => {
-    if (activeTab !== 'guest' || guestQuery.length < 2) {
+    if (activeTab !== 'guest' || searchIndex) return;
+    let alive = true;
+    loadAnimeIndex().then(
+      search => { if (alive) setSearchIndex(() => search); },
+      err => { if (alive) { setIndexFailed(true); console.error('anime index', err); } }
+    );
+    return () => { alive = false; };
+  }, [activeTab, searchIndex]);
+
+  // Guest Search — chạy local, đồng bộ: không debounce, không abort, không cache.
+  useEffect(() => {
+    const q = guestQuery.trim();
+    if (activeTab !== 'guest' || q.length < 2) {
       setGuestResults([]);
-      setGuestSearching(false);
       setShowGuestDropdown(false);
       return;
     }
-
-    const normalizedQuery = guestQuery.trim().toLowerCase();
-
-    if (queryCacheRef.current.has(normalizedQuery)) {
-      setGuestResults(queryCacheRef.current.get(normalizedQuery)!);
-      setShowGuestDropdown(true);
-      setGuestSearching(false);
-      return;
-    }
-
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-    const abortController = new AbortController();
-    abortControllerRef.current = abortController;
-
-    const timer = setTimeout(async () => {
-      setGuestSearching(true);
-      setShowGuestDropdown(true);
-      try {
-        const data = await searchAnimeAPI(guestQuery, 10, abortController.signal);
-        queryCacheRef.current.set(normalizedQuery, data.results);
-        setGuestResults(data.results);
-      } catch (err: unknown) {
-        const errorName = (err as { name?: string })?.name;
-        if (errorName !== 'CanceledError' && errorName !== 'AbortError') {
-          console.error("Search error", err);
-        }
-      } finally {
-        if (!abortController.signal.aborted) {
-          setGuestSearching(false);
-        }
-      }
-    }, 250);
-
-    return () => {
-      clearTimeout(timer);
-      abortController.abort();
-    };
-  }, [guestQuery, activeTab]);
+    setShowGuestDropdown(true);
+    setGuestResults(searchIndex ? searchIndex(q, 10) : []);
+  }, [guestQuery, activeTab, searchIndex]);
 
   const selectableItems = guestResults.filter(
     item => item.in_corpus && !guestPicks.some(p => p.mal_id === item.mal_id)
   );
+  const indexLoading = activeTab === 'guest' && !searchIndex && !indexFailed;
 
   useEffect(() => {
     setActiveIndex(-1);
@@ -299,7 +275,7 @@ export function SearchForm({
               <input
                 type="text"
                 role="combobox"
-                aria-expanded={showGuestDropdown && (guestResults.length > 0 || guestSearching)}
+                aria-expanded={showGuestDropdown}
                 aria-controls="guest-search-listbox"
                 aria-activedescendant={
                   showGuestDropdown && activeIndex >= 0 && selectableItems[activeIndex]
@@ -320,15 +296,15 @@ export function SearchForm({
                 className="w-full pl-11 pr-10 py-3 bg-white border border-gray-300 text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-gray-900 focus:border-gray-900 sm:text-base transition-shadow shadow-sm rounded-none"
               />
               <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
-                {guestSearching && <Loader2 className="w-4 h-4 text-gray-400 animate-spin" />}
+                {indexLoading && <Loader2 className="w-4 h-4 text-gray-400 animate-spin" />}
               </div>
 
               {/* Guest Search Dropdown */}
-              {showGuestDropdown && (guestResults.length > 0 || guestSearching) && (
+              {showGuestDropdown && (
                 <div
                   id="guest-search-listbox"
                   role="listbox"
-                  aria-busy={guestSearching}
+                  aria-busy={indexLoading}
                   className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-300 shadow-xl z-50 max-h-80 overflow-y-auto"
                 >
                   {guestResults.map(item => {
@@ -389,7 +365,7 @@ export function SearchForm({
                       </button>
                     );
                   })}
-                  {guestSearching && guestResults.length === 0 && (
+                  {indexLoading && guestResults.length === 0 && (
                     <div aria-hidden="true" className="animate-pulse">
                       {[...Array(5)].map((_, i) => (
                         <div
@@ -403,6 +379,16 @@ export function SearchForm({
                           </div>
                         </div>
                       ))}
+                    </div>
+                  )}
+                  {/* search local nên "không có" là kết luận chắc chắn + tức thì, không
+                      còn mơ hồ giữa "chưa về" và "không có" như hồi gọi API */}
+                  {!indexLoading && !indexFailed && guestResults.length === 0 && (
+                    <div className="p-3 text-sm text-gray-400 text-center">No anime matches “{guestQuery.trim()}”</div>
+                  )}
+                  {indexFailed && (
+                    <div className="p-3 text-sm text-gray-500 text-center">
+                      Can't load the anime index — check your connection and reload.
                     </div>
                   )}
                 </div>
