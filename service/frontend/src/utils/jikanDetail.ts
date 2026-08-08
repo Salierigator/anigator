@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 // Jikan detail cho MODAL (client-side → đẩy gánh nặng fetch synopsis/genres sang browser user,
 // né rate-limit token MAL backend). CHỈ modal dùng (click-triggered, 1 lần/lượt) nên không cần
-// queue phức tạp như bản cũ — chỉ cache + dedup in-flight + lùi nhẹ khi 429.
+// queue: chỉ cache + dedup in-flight + lùi nhẹ khi 429.
 // Số hiển thị (MAL Score) KHÔNG lấy ở đây — modal ghim theo bản MAL v2 của card để khỏi lệch.
 const CACHE = new Map<number, any>();
 const inflight = new Map<number, Promise<any | null>>();

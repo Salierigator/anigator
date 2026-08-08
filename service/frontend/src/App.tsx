@@ -28,7 +28,7 @@ function App() {
   const requestedIdsRef = useRef<Set<number>>(new Set());
 
   const { tabPools, loadingStates, slowLoadingStates, error, searchedUsername, handleSearch, cancelSearch } =
-    useRecommendations({ watchedSet, onPoolReset: () => {} });
+    useRecommendations({ watchedSet });
 
   const currentPool = tabPools[activeTab];
   const { facetOptions, filteredMain, filteredCold, displayedMain, displayedCold, isFiltered } =
@@ -52,9 +52,8 @@ function App() {
 
   const [selectedAnime, setSelectedAnime] = useState<AnimeItem | null>(null);
 
-  // Guest mode KHÔNG tự search khi picks/watchedSet đổi: sửa list thoải mái, chỉ bắn request
-  // lúc bấm nút submit (hoặc deep-link ?ids= lúc mount, do useUrlSync gọi). Trước đây mỗi lần
-  // tim/bỏ tim/bấm Seen là 1 POST /api/recommend.
+  // Guest mode KHÔNG tự search khi picks/watchedSet đổi (sửa list thoải mái, không spam
+  // /api/recommend) — chỉ bắn lúc bấm submit, hoặc deep-link ?ids= lúc mount qua useUrlSync.
 
   useEffect(() => {
     pingHealthAPI();

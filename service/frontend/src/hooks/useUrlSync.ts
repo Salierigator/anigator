@@ -139,32 +139,21 @@ export function useUrlSync({
     if (!hasInitializedRef.current) return;
 
     const url = new URL(window.location.href);
+    // Tab nào cũng chỉ giữ param của chính nó; "có pool HOẶC đang load" đều ghi (share link
+    // được ngay khi vừa bấm search, chưa cần đợi kết quả).
     if (activeTab === 'username') {
-      // Clear guest params
       url.searchParams.delete('ids');
       url.searchParams.delete('watched');
 
-      // Sync username param
-      if (tabPools.username && searchedUsername) {
-        url.searchParams.set('u', searchedUsername);
-      } else if (loadingStates.username && searchedUsername) {
+      if ((tabPools.username || loadingStates.username) && searchedUsername) {
         url.searchParams.set('u', searchedUsername);
       } else {
         url.searchParams.delete('u');
       }
     } else {
-      // Clear username params
       url.searchParams.delete('u');
 
-      // Sync guest params
-      if (tabPools.guest && guestPicks.length > 0) {
-        url.searchParams.set('ids', guestPicks.map(p => p.mal_id).join(','));
-        if (watchedSet.size > 0) {
-          url.searchParams.set('watched', Array.from(watchedSet).join(','));
-        } else {
-          url.searchParams.delete('watched');
-        }
-      } else if (loadingStates.guest && guestPicks.length > 0) {
+      if ((tabPools.guest || loadingStates.guest) && guestPicks.length > 0) {
         url.searchParams.set('ids', guestPicks.map(p => p.mal_id).join(','));
         if (watchedSet.size > 0) {
           url.searchParams.set('watched', Array.from(watchedSet).join(','));
@@ -177,18 +166,13 @@ export function useUrlSync({
       }
     }
 
-    // Sync sort parameters
-    if (prefs.sortBy !== 'relevance') {
+    // sort=relevance + order=desc là mặc định → bỏ khỏi URL cho gọn
+    if (prefs.sortBy !== 'relevance' || prefs.sortAsc) {
       url.searchParams.set('sort', prefs.sortBy);
       url.searchParams.set('order', prefs.sortAsc ? 'asc' : 'desc');
     } else {
-      if (prefs.sortAsc) {
-        url.searchParams.set('sort', 'relevance');
-        url.searchParams.set('order', 'asc');
-      } else {
-        url.searchParams.delete('sort');
-        url.searchParams.delete('order');
-      }
+      url.searchParams.delete('sort');
+      url.searchParams.delete('order');
     }
 
     window.history.replaceState(null, '', url.toString());

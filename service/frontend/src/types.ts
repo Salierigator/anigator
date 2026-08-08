@@ -91,10 +91,6 @@ export interface SearchResultItem {
   in_corpus: boolean;
 }
 
-export interface SearchResponse {
-  results: SearchResultItem[];
-}
-
 // ---- UI state types (client-side thuần, không phải shape API) ----
 
 export type Tab = 'username' | 'guest';

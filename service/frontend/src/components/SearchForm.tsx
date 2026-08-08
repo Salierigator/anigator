@@ -1,5 +1,4 @@
-/* eslint-disable react-hooks/set-state-in-effect */
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import { Search, X, User, ExternalLink, HelpCircle, CheckCircle2, XCircle, Loader2, Check } from 'lucide-react';
 import { checkUsernameExistsAPI } from '../api';
@@ -50,8 +49,8 @@ export function SearchForm({
 
   // Guest mode state
   const [guestQuery, setGuestQuery] = useState('');
-  const [guestResults, setGuestResults] = useState<SearchResultItem[]>([]);
-  const [showGuestDropdown, setShowGuestDropdown] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [dropdownOpen, setDropdownOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
   const [searchIndex, setSearchIndex] = useState<AnimeSearcher | null>(null);
   const [indexFailed, setIndexFailed] = useState(false);
@@ -61,6 +60,7 @@ export function SearchForm({
   // Username validation
   useEffect(() => {
     if (activeTab !== 'username' || username.trim().length < 2) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- huỷ kết quả check cũ khi user xoá bớt username
       setUsernameStatus('idle');
       if (userAbortControllerRef.current) userAbortControllerRef.current.abort();
       return;
@@ -93,7 +93,7 @@ export function SearchForm({
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (searchDropdownRef.current && !searchDropdownRef.current.contains(event.target as Node)) {
-        setShowGuestDropdown(false);
+        setDropdownOpen(false);
         setActiveIndex(-1);
       }
     };
@@ -112,26 +112,29 @@ export function SearchForm({
     return () => { alive = false; };
   }, [activeTab, searchIndex]);
 
-  // Guest Search — chạy local, đồng bộ: không debounce, không abort, không cache.
+  /* Gom 40ms trước khi query đi vào search/dropdown. KHÔNG phải để giảm tải (search chạy
+     local, tức thì) mà để nuốt giá trị trung gian của bộ gõ: lúc IME commit marked text
+     (gạch chân xanh), macOS thay text bằng cặp xoá-rồi-chèn nên value tụt về '' đúng 1 tick.
+     Bám thẳng guestQuery thì tick đó đóng dropdown → mount lại = mất scroll, user bấm hụt. */
   useEffect(() => {
-    const q = guestQuery.trim();
-    if (activeTab !== 'guest' || q.length < 2) {
-      setGuestResults([]);
-      setShowGuestDropdown(false);
-      return;
-    }
-    setShowGuestDropdown(true);
-    setGuestResults(searchIndex ? searchIndex(q, 10) : []);
-  }, [guestQuery, activeTab, searchIndex]);
+    const timer = setTimeout(() => setSearchQuery(guestQuery.trim()), 40);
+    return () => clearTimeout(timer);
+  }, [guestQuery]);
 
-  const selectableItems = guestResults.filter(
-    item => item.in_corpus && !guestPicks.some(p => p.mal_id === item.mal_id)
+  // Guest Search — chạy local, đồng bộ: không abort, không cache.
+  const guestResults = useMemo(() => {
+    if (activeTab !== 'guest' || searchQuery.length < 2 || !searchIndex) return [];
+    return searchIndex(searchQuery, 10);
+  }, [searchQuery, activeTab, searchIndex]);
+
+  // Query ngắn (<2) thì luôn đóng; ngoài ra user điều khiển: gõ/focus mở, Esc/click ngoài/chọn đóng.
+  const showGuestDropdown = dropdownOpen && activeTab === 'guest' && searchQuery.length >= 2;
+
+  const selectableItems = useMemo(
+    () => guestResults.filter(item => item.in_corpus && !guestPicks.some(p => p.mal_id === item.mal_id)),
+    [guestResults, guestPicks]
   );
   const indexLoading = activeTab === 'guest' && !searchIndex && !indexFailed;
-
-  useEffect(() => {
-    setActiveIndex(-1);
-  }, [guestResults, showGuestDropdown]);
 
   useEffect(() => {
     if (activeIndex >= 0 && selectableItems[activeIndex]) {
@@ -149,7 +152,7 @@ export function SearchForm({
       setGuestPicks([...guestPicks, item]);
     }
     setGuestQuery('');
-    setShowGuestDropdown(false);
+    setDropdownOpen(false);
     setActiveIndex(-1);
   };
 
@@ -159,8 +162,8 @@ export function SearchForm({
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'ArrowDown') {
-      if (!showGuestDropdown && guestQuery.length >= 2 && guestResults.length > 0) {
-        setShowGuestDropdown(true);
+      if (!showGuestDropdown && guestResults.length > 0) {
+        setDropdownOpen(true);
       }
       if (selectableItems.length > 0) {
         e.preventDefault();
@@ -177,7 +180,7 @@ export function SearchForm({
         addGuestPick(selectableItems[activeIndex]);
       }
     } else if (e.key === 'Escape') {
-      setShowGuestDropdown(false);
+      setDropdownOpen(false);
       setActiveIndex(-1);
     }
   };
@@ -213,6 +216,8 @@ export function SearchForm({
           <button
             type="button"
             onClick={() => setActiveTab('guest')}
+            // rê chuột đã bắt đầu tải index → tới lúc gõ thường đã sẵn sàng
+            onMouseEnter={() => { loadAnimeIndex().catch(() => {}); }}
             className={`px-6 py-2 text-sm font-semibold transition-colors rounded-none cursor-pointer ${
               activeTab === 'guest' ? 'bg-white text-gray-900 shadow-sm border border-gray-200' : 'text-gray-500 hover:text-gray-700'
             }`}
@@ -286,10 +291,11 @@ export function SearchForm({
                 value={guestQuery}
                 onChange={(e) => {
                   setGuestQuery(e.target.value);
-                  if (e.target.value.length >= 2) setShowGuestDropdown(true);
+                  setDropdownOpen(true);
+                  setActiveIndex(-1);
                 }}
                 onFocus={() => {
-                  if (guestQuery.length >= 2 && guestResults.length > 0) setShowGuestDropdown(true);
+                  if (guestResults.length > 0) setDropdownOpen(true);
                 }}
                 onKeyDown={handleKeyDown}
                 placeholder="Search anime to add..."
@@ -311,7 +317,7 @@ export function SearchForm({
                   {guestResults.map(item => {
                     const isAlreadyPicked = guestPicks.some(p => p.mal_id === item.mal_id);
                     const isDisabled = !item.in_corpus || isAlreadyPicked;
-                    const isHighlighted = showGuestDropdown && activeIndex >= 0 && selectableItems[activeIndex]?.mal_id === item.mal_id;
+                    const isHighlighted = activeIndex >= 0 && selectableItems[activeIndex]?.mal_id === item.mal_id;
 
                     return (
                       <button
@@ -366,20 +372,12 @@ export function SearchForm({
                       </button>
                     );
                   })}
+                  {/* KHÔNG dùng skeleton hình hàng kết quả ở đây: nó trông y như pick được
+                      nhưng không bấm được → user bấm hụt lần 1, tưởng hỏng. Nói thẳng đang tải. */}
                   {indexLoading && guestResults.length === 0 && (
-                    <div aria-hidden="true" className="animate-pulse">
-                      {[...Array(5)].map((_, i) => (
-                        <div
-                          key={i}
-                          className="w-full flex items-center gap-3 p-2 border-b border-gray-100 last:border-0"
-                        >
-                          <div className="w-10 h-14 bg-gray-200 flex-shrink-0" />
-                          <div className="flex-1 min-w-0">
-                            <div className="h-3 bg-gray-200 w-2/3" />
-                            <div className="h-2 bg-gray-100 w-1/3 mt-2" />
-                          </div>
-                        </div>
-                      ))}
+                    <div className="flex items-center justify-center gap-2 p-4 text-sm text-gray-400">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Loading anime database…
                     </div>
                   )}
                   {/* search local nên "không có" là kết luận chắc chắn + tức thì, không

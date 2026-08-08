@@ -1,4 +1,3 @@
-/* eslint-disable react-hooks/set-state-in-effect */
 import { useEffect, useRef, useState } from 'react';
 import { recommendAPI } from '../api';
 import type { RecommendResponse, Tab } from '../types';
@@ -13,11 +12,10 @@ export type HandleSearch = (
 
 interface Params {
   watchedSet: Set<number>;
-  onPoolReset: () => void; // dọn cache posters khi chuẩn bị đổ pool mới
 }
 
 /** Pool kết quả theo tab + loading/error + handleSearch (dedupe, abort request cũ). */
-export function useRecommendations({ watchedSet, onPoolReset }: Params) {
+export function useRecommendations({ watchedSet }: Params) {
   const [loadingStates, setLoadingStates] = useState<Record<Tab, boolean>>({
     username: false,
     guest: false
@@ -76,11 +74,9 @@ export function useRecommendations({ watchedSet, onPoolReset }: Params) {
     setLoadingStates(prev => ({ ...prev, [searchTab]: true }));
     setError(null);
 
-    // Clear pool/posters only if it's a fresh username search or if we have no pool yet
-    const hasExistingPool = !!tabPools[searchTab];
-    if (searchTab === 'username' || !hasExistingPool) {
+    // Xoá pool cũ nếu là search username mới, hoặc tab chưa có pool nào
+    if (searchTab === 'username' || !tabPools[searchTab]) {
       setTabPools(prev => ({ ...prev, [searchTab]: null }));
-      onPoolReset();
     }
 
     if (searchTab === 'username' && params.username) {
@@ -147,6 +143,7 @@ export function useRecommendations({ watchedSet, onPoolReset }: Params) {
   // Loading >8s → bật thêm dòng "server is waking up" (backend free-tier spin down)
   useEffect(() => {
     if (!loadingStates.username) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- hết loading thì tắt cờ
       setSlowLoadingStates(prev => ({ ...prev, username: false }));
       return;
     }
@@ -158,6 +155,7 @@ export function useRecommendations({ watchedSet, onPoolReset }: Params) {
 
   useEffect(() => {
     if (!loadingStates.guest) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- hết loading thì tắt cờ
       setSlowLoadingStates(prev => ({ ...prev, guest: false }));
       return;
     }

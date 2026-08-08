@@ -1,5 +1,4 @@
-/* eslint-disable react-hooks/set-state-in-effect */
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { ChevronDown, Search, X, Check } from 'lucide-react';
 
 interface MultiSelectProps {
@@ -25,78 +24,60 @@ export function MultiSelectDropdown({
 }: MultiSelectProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  // Thứ tự option CHỐT lúc mở: đã chọn lên đầu. Tick/bỏ tick khi đang mở không xáo lại list
+  // dưới tay user — lần mở sau mới sắp lại.
   const [orderedOptions, setOrderedOptions] = useState<string[]>(options);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const handleSetIsOpen = (open: boolean) => {
-    setIsOpen(open);
-    if (!open && closeTimerRef.current) {
+  const clearCloseTimer = useCallback(() => {
+    if (closeTimerRef.current) {
       clearTimeout(closeTimerRef.current);
       closeTimerRef.current = null;
     }
+  }, []);
+
+  const closeDropdown = useCallback(() => {
+    setIsOpen(false);
+    clearCloseTimer();
+  }, [clearCloseTimer]);
+
+  const openDropdown = () => {
+    setOrderedOptions([
+      ...options.filter(o => selected.includes(o)),
+      ...options.filter(o => !selected.includes(o)),
+    ]);
+    setIsOpen(true);
   };
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        handleSetIsOpen(false);
+        closeDropdown();
       }
     }
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+  }, [closeDropdown]);
 
-  useEffect(() => {
-    return () => {
-      if (closeTimerRef.current) {
-        clearTimeout(closeTimerRef.current);
-      }
-    };
-  }, []);
+  useEffect(() => clearCloseTimer, [clearCloseTimer]);
 
-  const handleMouseEnter = () => {
-    if (closeTimerRef.current) {
-      clearTimeout(closeTimerRef.current);
-      closeTimerRef.current = null;
-    }
-  };
-
+  // Rê chuột ra ngoài → đóng sau 150ms (rê nhầm qua mép thì không mất dropdown ngay)
   const handleMouseLeave = () => {
-    if (isOpen) {
-      if (closeTimerRef.current) {
-        clearTimeout(closeTimerRef.current);
-      }
-      closeTimerRef.current = setTimeout(() => {
-        handleSetIsOpen(false);
-      }, 150);
-    }
+    if (!isOpen) return;
+    clearCloseTimer();
+    closeTimerRef.current = setTimeout(closeDropdown, 150);
   };
-
-  useEffect(() => {
-    if (isOpen) {
-      const sel = options.filter(o => selected.includes(o));
-      const rest = options.filter(o => !selected.includes(o));
-      setOrderedOptions([...sel, ...rest]);
-    }
-  }, [isOpen]);
-
-  useEffect(() => {
-    setOrderedOptions(options);
-  }, [options]);
 
   const toggleOption = (option: string) => {
     if (single) {
-      if (label.startsWith('Show')) {
-        onChange([option]);
+      // Show Main/Show Cold luôn phải có 1 giá trị; filter 1-lựa-chọn thì bấm lại = bỏ chọn
+      if (!label.startsWith('Show') && selected.includes(option)) {
+        onChange([]);
       } else {
-        if (selected.includes(option)) {
-          onChange([]);
-        } else {
-          onChange([option]);
-        }
+        onChange([option]);
       }
-      handleSetIsOpen(false);
+      closeDropdown();
     } else {
       if (selected.includes(option)) {
         onChange(selected.filter(item => item !== option));
@@ -128,7 +109,7 @@ export function MultiSelectDropdown({
     <div
       className="relative flex-1 min-w-0"
       ref={dropdownRef}
-      onMouseEnter={handleMouseEnter}
+      onMouseEnter={clearCloseTimer}
       onMouseLeave={handleMouseLeave}
     >
       {!hideLabel && (
@@ -138,7 +119,7 @@ export function MultiSelectDropdown({
       )}
       <button
         type="button"
-        onClick={() => handleSetIsOpen(!isOpen)}
+        onClick={() => (isOpen ? closeDropdown() : openDropdown())}
         className="w-full border flex items-center justify-between focus:outline-none focus:ring-1 focus:ring-gray-900 cursor-pointer transition-all duration-300 ease-in-out motion-reduce:transition-none px-3 py-2 text-sm border-gray-300 text-gray-900 bg-white hover:border-gray-400"
       >
         <span className="truncate flex items-center">
@@ -178,7 +159,7 @@ export function MultiSelectDropdown({
                 type="button"
                 onClick={() => {
                   onChange([]);
-                  handleSetIsOpen(false);
+                  closeDropdown();
                 }}
                 className="w-full px-3 py-1.5 text-xs text-left text-gray-700 hover:bg-gray-100 flex items-center justify-between cursor-pointer transition-colors"
               >
