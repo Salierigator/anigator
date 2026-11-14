@@ -43,7 +43,6 @@ cleaned     + ranker         user_tower         (read-only consumer)
 | `artifacts/` | Model exports (not committed) |
 | `service/backend/` | FastAPI app + CLI (`recommend.py`), read-only consumer of `artifacts/` |
 | `service/frontend/` | React + Vite + TypeScript UI |
-| `map/` | 2-D UMAP map of the catalog (TODO) |
 
 ## Quickstart (Local run)
 

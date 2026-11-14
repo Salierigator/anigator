@@ -14,7 +14,9 @@ from pathlib import Path
 
 import requests
 
-ROOT = Path(__file__).resolve().parents[2]
+# repo root = nearest ancestor holding data/crawler, so this file works both from
+# data/crawler/ (deployed) and from data/crawler/fix_bug/ (staging, see NOTE.md)
+ROOT = next(p for p in Path(__file__).resolve().parents if (p / "data" / "crawler").is_dir())
 RAW = ROOT / "data" / "raw"
 DB_PATH = RAW / "crawl_state.sqlite"
 
@@ -122,7 +124,10 @@ CREATE TABLE IF NOT EXISTS kv(k TEXT PRIMARY KEY, v TEXT);
 
 def db() -> sqlite3.Connection:
     RAW.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
+    # timeout=60: three crawlers write this db concurrently and the default 5s
+    # busy timeout can raise "database is locked" on the VM's slow disk, killing
+    # a run mid-crawl (resumable, but silently loses hours)
+    conn = sqlite3.connect(DB_PATH, timeout=60)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.executescript(SCHEMA)
     return conn

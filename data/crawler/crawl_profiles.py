@@ -1,5 +1,10 @@
 """Crawl user profiles: Jikan primary, full-parity HTML fallback.
 
+FIXED version of data/crawler/crawl_profiles.py — see NOTE.md for what was wrong
+and why the fix looks like this. Column layout is byte-for-byte the same as the
+old script, so fixed rows can be appended straight onto the existing
+data/raw/profiles.csv (cleaning dedups by username keep-last).
+
 Two sources produce IDENTICAL columns (the `source` column records which):
 - Jikan /users/{u}/full — primary, because it keeps profile traffic off our IP:
   users.php polling and the ratings crawler already hit MAL directly, and with
@@ -16,12 +21,13 @@ private/deleted/empty-list user has no training value, so their profile request
 would be pure waste. Run crawl_ratings ahead of (or alongside) this script.
 
 Output: data/raw/profiles.csv. `favorites_anime` = space-separated mal_ids,
-`joined` normalized to YYYY-MM-DD. Same resume/dedup semantics as crawl_ratings:
-rows append first, state marks second; cleaning dedups by username keep-last.
+`joined`/`birthday` normalized to YYYY-MM-DD. Same resume/dedup semantics as
+crawl_ratings: rows append first, state marks second.
 
     venv/bin/python data/crawler/crawl_profiles.py               # all pending users
     venv/bin/python data/crawler/crawl_profiles.py --limit 5     # smoke test
     venv/bin/python data/crawler/crawl_profiles.py --source html # force one path
+    venv/bin/python data/crawler/crawl_profiles.py --requeue-file recrawl.txt
 """
 from __future__ import annotations
 
@@ -50,20 +56,24 @@ DAYS_RE = re.compile(r'Days:\s*</span>\s*([\d.,]+)')
 MEAN_RE = re.compile(r'Mean Score:\s*</span>\s*<span[^>]*>([\d.,]+)</span>')
 COUNT_LABELS = ["Watching", "Completed", "On-Hold", "Dropped", "Plan to Watch",
                 "Total Entries", "Rewatched", "Episodes"]  # order matches STAT_KEYS[2:]
-# favorites block is absent when the user has none set; ends at the next
-# favorites section OR the "Last Anime Updates" area (users may lack the
-# other favorites sections, letting the lazy match run on)
-FAV_BLOCK_RE = re.compile(
-    r'id="anime_favorites"(.*?)(?:id="\w+_favorites"|class="updates|$)', re.S)
+# favorites = the <ul class="fav-slide"> that lives inside #anime_favorites, so
+# the block ends at its OWN </ul>. Never look ahead for the *next* section: the
+# old regex did, and for users who set only anime favorites there is no next
+# section, so it ran to EOF and swallowed MAL's site-wide footer ranking.
+FAV_BLOCK_RE = re.compile(r'id="anime_favorites"(.*?)</ul>', re.S)
+# MAL prints the true count in the header right above the block — free checksum
+FAV_COUNT_RE = re.compile(r'<h5>\s*Anime\s*\((\d+)\)\s*</h5>\s*<div[^>]*id="anime_favorites"', re.S)
 # href anchor keeps CDN poster paths out: cdn.../images/anime/{dir}/{file}.jpg
 # also contains "/anime/<digits>/" but never this href prefix
 FAV_LINK_RE = re.compile(r'href="https://myanimelist\.net/anime/(\d+)/')
 
 
-def _joined_iso(val):
+def _date_iso(val):
+    """'Nov 28, 2022' -> '2022-11-28'. Partial dates (no year / year only) are
+    kept verbatim — MAL lets users hide the year, that is data, not a parse miss."""
     if not val:
         return ""
-    try:  # sidebar shows "Nov 28, 2022"
+    try:
         return datetime.strptime(val, "%b %d, %Y").strftime("%Y-%m-%d")
     except ValueError:
         return val
@@ -76,22 +86,38 @@ def _count(block, label):
     return m.group(1).replace(",", "") if m else ""
 
 
+def favorites(html):
+    """-> (ids, ok). ok=False means the page did not parse as expected and the
+    row must NOT be trusted; caller marks the user for a retry instead of
+    writing a silently wrong favorites column."""
+    count = FAV_COUNT_RE.search(html)
+    block = FAV_BLOCK_RE.search(html)
+    if block is None:
+        # no anime favorites set -> MAL omits both the header and the block
+        return [], count is None
+    favs = list(dict.fromkeys(FAV_LINK_RE.findall(block.group(1))))
+    if count is None:
+        return favs, False
+    return favs, len(favs) == int(count.group(1))
+
+
 def from_html(html, username):
+    """-> row (list) or None when the page did not parse as expected."""
     def side(label):
         m = re.search(SIDEBAR_RE.format(label=label), html)
         return m.group(1).strip() if m else ""
 
-    m = FAV_BLOCK_RE.search(html)
-    favs = list(dict.fromkeys(FAV_LINK_RE.findall(m.group(1)))) if m else []
-    if len(favs) > 20:  # MAL caps favorites at 10 (20 for supporters)
-        print(f"    [!] {username}: {len(favs)} favorites parsed — FAV regexes "
-              f"likely broken by a MAL redesign, check before trusting this column")
+    favs, ok = favorites(html)
+    if not ok:
+        print(f"    [!] {username}: favorites block did not match its own count — "
+              f"MAL layout likely changed, NOT writing this row (check the parser)")
+        return None
     m = STATS_BLOCK_RE.search(html)
     block = m.group(1) if m else ""
     days = DAYS_RE.search(block)
     mean = MEAN_RE.search(block)
-    return [username, side("Gender"), side("Birthday"), side("Location"),
-            _joined_iso(side("Joined")), " ".join(favs),
+    return [username, side("Gender"), _date_iso(side("Birthday")), side("Location"),
+            _date_iso(side("Joined")), " ".join(favs),
             days.group(1).replace(",", "") if days else "",
             mean.group(1) if mean else "",
             *(_count(block, lbl) for lbl in COUNT_LABELS), "html"]
@@ -110,6 +136,8 @@ def main():
     ap.add_argument("--limit", type=int, help="crawl at most N users this run")
     ap.add_argument("--source", choices=["auto", "jikan", "html"], default="auto")
     ap.add_argument("--retry-errors", action="store_true", help="re-queue users marked 'error'")
+    ap.add_argument("--requeue-file", help="file with one username per line to crawl again "
+                                           "(rows append; cleaning keeps the last one)")
     args = ap.parse_args()
 
     common.install_signals()
@@ -121,6 +149,13 @@ def main():
         n = conn.execute("UPDATE users SET profile_status=NULL WHERE profile_status='error'").rowcount
         conn.commit()
         print(f"[i] re-queued {n} error users")
+
+    if args.requeue_file:
+        names = [ln.strip() for ln in open(args.requeue_file, encoding="utf-8") if ln.strip()]
+        n = conn.executemany("UPDATE users SET profile_status=NULL WHERE username=?",
+                             [(u,) for u in names]).rowcount
+        conn.commit()
+        print(f"[i] re-queued {n}/{len(names)} users from {args.requeue_file}")
 
     # only users whose ratings crawl succeeded: private (403) / deleted (404) /
     # empty-list users have no training value, so spending profile requests on
@@ -155,7 +190,9 @@ def main():
                     row, status = from_jikan(r.json()["data"], username), "ok"
                     jikan_fails = 0
                 elif r is not None and r.status_code == 404:
-                    status, jikan_fails = "http_404", 0
+                    # Jikan has its own cache/lookup: its 404 is not MAL's answer,
+                    # so fall through to HTML instead of blacklisting the user
+                    jikan_fails = 0
                 else:
                     jikan_fails += 1
                     if args.source == "auto" and jikan_fails >= BREAKER_FAILS:
@@ -163,10 +200,11 @@ def main():
                         jikan_fails = 0
                         print(f"[!] jikan down {BREAKER_FAILS}x in a row — "
                               f"html-only for {BREAKER_PAUSE}s")
-            if row is None and status != "http_404" and args.source in ("auto", "html"):
+            if row is None and args.source in ("auto", "html"):
                 r = html.get(f"https://myanimelist.net/profile/{username}")
                 if r is not None and r.status_code == 200:
-                    row, status = from_html(r.text, username), "ok"
+                    row = from_html(r.text, username)      # None = parse mismatch
+                    status = "ok" if row else "error"
                 elif r is not None and r.status_code == 404:
                     status = "http_404"
             if row:

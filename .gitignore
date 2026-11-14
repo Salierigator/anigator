@@ -10,28 +10,24 @@ venv/
 # OS
 .DS_Store
 
-# Agent guidance + workflow local
-.claude/
-CLAUDE.md
-AGENT.md
-RECONSTRUCT.md
-service/API_CONTRACT.md
-DESIGN.md
+# Not tracking local markdown notes
+*.md
+!README.md
 
-# Data (GB) — không đẩy GitHub
+# Data (GB)
 data/raw/
 data/cleaned/
 legacy/
 
-# Model artifacts + checkpoints (persist trên Drive)
+# Model artifacts + checkpoints
 artifacts/
 train-data/
 checkpoints/
 models/
 runs/
 
-# Map (đóng băng) — outputs sinh lại từ artifacts
-map/outputs/
+# Local scratchpad
+lab/
 
 # Secrets
 .env
@@ -44,6 +40,3 @@ service/frontend/node_modules/
 service/frontend/dist/
 service/frontend/.vite/
 service/frontend/*.local
-
-# Slide bảo vệ đồ án (không thuộc sản phẩm)
-slide/
