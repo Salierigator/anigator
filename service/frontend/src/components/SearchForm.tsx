@@ -60,7 +60,7 @@ export function SearchForm({
   // Username validation
   useEffect(() => {
     if (activeTab !== 'username' || username.trim().length < 2) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- huỷ kết quả check cũ khi user xoá bớt username
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- drop the previous check result when the user shortens the username
       setUsernameStatus('idle');
       if (userAbortControllerRef.current) userAbortControllerRef.current.abort();
       return;
@@ -101,7 +101,7 @@ export function SearchForm({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Tải index lúc mở tab guest (~1.2 MB gzip, 1 lần / phiên) — không tải ở tab username.
+  // Load the index when the guest tab opens (~1.2 MB gzip, once per session); never on the username tab.
   useEffect(() => {
     if (activeTab !== 'guest' || searchIndex) return;
     let alive = true;
@@ -112,22 +112,23 @@ export function SearchForm({
     return () => { alive = false; };
   }, [activeTab, searchIndex]);
 
-  /* Gom 40ms trước khi query đi vào search/dropdown. KHÔNG phải để giảm tải (search chạy
-     local, tức thì) mà để nuốt giá trị trung gian của bộ gõ: lúc IME commit marked text
-     (gạch chân xanh), macOS thay text bằng cặp xoá-rồi-chèn nên value tụt về '' đúng 1 tick.
-     Bám thẳng guestQuery thì tick đó đóng dropdown → mount lại = mất scroll, user bấm hụt. */
+  /* Debounce the query by 40 ms before it reaches search/dropdown. NOT to reduce load (search runs
+     locally, instantly) but to swallow the IME's intermediate value: when the IME commits marked
+     text (blue underline), macOS replaces the text with a delete-then-insert pair, so the value
+     drops to '' for exactly one tick. Following guestQuery directly, that tick closes the dropdown
+     -> remount = lost scroll position, and the user's click misses. */
   useEffect(() => {
     const timer = setTimeout(() => setSearchQuery(guestQuery.trim()), 40);
     return () => clearTimeout(timer);
   }, [guestQuery]);
 
-  // Guest Search — chạy local, đồng bộ: không abort, không cache.
+  // Guest search: local and synchronous, so no abort and no cache.
   const guestResults = useMemo(() => {
     if (activeTab !== 'guest' || searchQuery.length < 2 || !searchIndex) return [];
     return searchIndex(searchQuery, 10);
   }, [searchQuery, activeTab, searchIndex]);
 
-  // Query ngắn (<2) thì luôn đóng; ngoài ra user điều khiển: gõ/focus mở, Esc/click ngoài/chọn đóng.
+  // A short query (< 2) always closes it; otherwise the user controls it: typing/focus opens, Esc/click outside/pick closes.
   const showGuestDropdown = dropdownOpen && activeTab === 'guest' && searchQuery.length >= 2;
 
   const selectableItems = useMemo(
@@ -216,7 +217,7 @@ export function SearchForm({
           <button
             type="button"
             onClick={() => setActiveTab('guest')}
-            // rê chuột đã bắt đầu tải index → tới lúc gõ thường đã sẵn sàng
+            // hovering starts loading the index, so it is usually ready by the time the user types
             onMouseEnter={() => { loadAnimeIndex().catch(() => {}); }}
             className={`px-6 py-2 text-sm font-semibold transition-colors rounded-none cursor-pointer ${
               activeTab === 'guest' ? 'bg-white text-gray-900 shadow-sm border border-gray-200' : 'text-gray-500 hover:text-gray-700'
@@ -305,8 +306,8 @@ export function SearchForm({
                 {indexLoading && <Loader2 className="w-4 h-4 text-gray-400 animate-spin" />}
               </div>
 
-              {/* Guest Search Dropdown — overscroll-contain: cuộn hết list thì DỪNG,
-                  không kéo lây cả trang phía sau (scroll chaining) */}
+              {/* Guest Search Dropdown. overscroll-contain: scrolling past the end of the list
+                  STOPS instead of scrolling the page behind it (scroll chaining) */}
               {showGuestDropdown && (
                 <div
                   id="guest-search-listbox"
@@ -372,16 +373,16 @@ export function SearchForm({
                       </button>
                     );
                   })}
-                  {/* KHÔNG dùng skeleton hình hàng kết quả ở đây: nó trông y như pick được
-                      nhưng không bấm được → user bấm hụt lần 1, tưởng hỏng. Nói thẳng đang tải. */}
+                  {/* No result-row skeleton here: it looks pickable but is not clickable, so the
+                      first click misses and the picker seems broken. Say plainly that it is loading. */}
                   {indexLoading && guestResults.length === 0 && (
                     <div className="flex items-center justify-center gap-2 p-4 text-sm text-gray-400">
                       <Loader2 className="w-4 h-4 animate-spin" />
                       Loading anime database…
                     </div>
                   )}
-                  {/* search local nên "không có" là kết luận chắc chắn + tức thì, không
-                      còn mơ hồ giữa "chưa về" và "không có" như hồi gọi API */}
+                  {/* Search is local, so "no match" is definite and instant, never "results still
+                      on the way" */}
                   {!indexLoading && !indexFailed && guestResults.length === 0 && (
                     <div className="p-3 text-sm text-gray-400 text-center">No anime matches “{guestQuery.trim()}”</div>
                   )}
@@ -400,8 +401,8 @@ export function SearchForm({
             key="stop"
             type="button"
             onClick={(e) => {
-              // preventDefault: khi state đổi giữa lúc dispatch, React morph node này thành
-              // nút submit → default action của click sẽ submit form ngay sau cancel
+              // preventDefault: if the state changes mid-dispatch, React morphs this node into the
+              // submit button, and the click's default action would submit the form right after cancel
               e.preventDefault();
               onCancel();
             }}
@@ -438,8 +439,8 @@ export function SearchForm({
                   Clear all
                 </button>
               </div>
-              {/* ô đều nhau + click cả chip = xoá: nút X 14px dịch chỗ sau mỗi lần xoá thì
-                  không spam click liên tục được */}
+              {/* Equal-width cells, and clicking the whole chip removes it: a 14px X button would
+                  shift after every removal, which breaks rapid repeated clicks */}
               <div className="grid grid-cols-2 sm:grid-cols-3 w-full gap-2">
                 {guestPicks.map(pick => (
                   <button

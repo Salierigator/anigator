@@ -1,27 +1,23 @@
-"""05 — Pass-2 (core): history FULL + hard_neg + examples (warm + cold) + eval_seen.
+"""05, pass 2 (core): full history + hard_neg + examples (warm + cold) + eval_seen.
 
-Stream-filter ratings 1 pass: (positive ∪ hard-neg theo prep_config) ∪ (MỌI row của
-eval user — nguồn seen-mask). Rồi build eager:
-  - Cold-item H (cold_items.parquet, chọn ở 01) cách ly 4 chỗ: train examples,
-    history MỌI user, hard_neg, support eval. Positive-H của EVAL user -> cold query
-    (examples/split={val,test}_cold); positive-H của TRAIN user vứt hẳn.
-  - Warm support/query (chống leak, cơ chế tie-hash như v1): train -> mọi warm
-    positive vừa history vừa example (anchor gỡ ở runtime); val/test -> query
-    (EVAL_QUERY_FRAC trên warm pool) = example, support (phần còn lại) = history.
-    n_warm < 2 -> không có warm query (user vẫn có thể có cold query).
-  - history_ids/scores: FULL (sort score desc, tie asc) — KHÔNG cap K; cap nằm ở
-    src lúc train/eval (train_hist_len / eval_history_cap).
-  - hard_neg_ids: hard-neg − H (dedup, sort, cap HARD_NEG_CAP).
-  - eval_seen.parquet: eval user -> unique anime_idx MỌI status (kể cả PTW/on_hold)
-    — protocol v2 mask = seen − query_đang_chấm.
+One streamed pass over ratings keeps (positive or hard-neg by prep_config) or (any row of an
+eval user, the source of the seen-mask), then builds eagerly:
+  - The cold items H (cold_items.parquet, picked by 01) are kept out of 4 places: train
+    examples, every user's history, hard_neg and eval support. An eval user's positives in H
+    become cold queries (examples/split={val,test}_cold); a train user's are dropped.
+  - Warm support/query (leak-proof, tie hash): a train user's warm positives are both history
+    and examples (the anchor is removed at runtime); for val/test, the queries
+    (EVAL_QUERY_FRAC of the warm pool) are examples and the rest (support) is history.
+    n_warm < 2 -> no warm query (the user may still have cold queries).
+  - history_ids/scores: full (score desc, ties asc), no cap here; train and eval cap it
+    (train_hist_len / eval_history_cap).
+  - hard_neg_ids: hard negatives minus H (dedup, sorted, capped at HARD_NEG_CAP).
+  - eval_seen.parquet: eval user -> unique anime_idx of every status (plan-to-watch and
+    on-hold included), for the mask = seen - the query being scored.
 
-In:  data/cleaned/ratings.csv,
-     train-data/{anime_id_map,_user_split,_user_feats,cold_items}.parquet
-Out: train-data/users.parquet, train-data/eval_seen.parquet,
-     train-data/examples/split={train,val,test,val_cold,test_cold}/part-0.parquet
-
-Usage:
-    venv/bin/python model/retriever/data_prep/05_history_examples.py
+Reads data/clean/ratings.csv and {anime_id_map,_user_split,_user_feats,cold_items}.parquet;
+writes users.parquet, eval_seen.parquet and
+examples/split={train,val,test,val_cold,test_cold}/part-0.parquet, all in train/retriever/data/.
 """
 import pathlib
 
@@ -31,15 +27,15 @@ from prep_config import EVAL_QUERY_FRAC, HARD_NEG_CAP, SEED, is_hardneg_expr, is
 
 RETRIEVER = pathlib.Path(__file__).parent.parent          # model/retriever/
 ROOT = RETRIEVER.parent.parent                            # repo root
-SRC = ROOT / "data" / "cleaned" / "ratings.csv"
-OUT = RETRIEVER / "train-data"
+SRC = ROOT / "data" / "clean" / "ratings.csv"
+OUT = RETRIEVER.parent.parent / "train" / "retriever" / "data"
 
 SPLIT_CODE = {"train": 0, "val": 1, "test": 2}
 
 
 def build_base():
-    """Streaming 1 pass -> eager frame: (pos ∪ hardneg) ∪ (mọi row của eval user).
-    Cột: user_idx, anime_idx, is_pos, is_hardneg, score, split_code."""
+    """One streamed pass -> eager frame of (pos or hardneg) or (any row of an eval user).
+    Columns: user_idx, anime_idx, is_pos, is_hardneg, score, split_code."""
     amap = pl.scan_parquet(OUT / "anime_id_map.parquet")          # mal_id, anime_idx
     split = (
         pl.scan_parquet(OUT / "_user_split.parquet")
@@ -72,14 +68,14 @@ def build_base():
 
 
 def main():
-    print("Pass-2: streaming (pos ∪ hardneg ∪ eval-user mọi status) ...")
+    print("Pass 2: streaming (pos | hardneg | any status of eval users) ...")
     base = build_base()
     print(f"  base rows: {base.height:,}")
 
     cold = pl.read_parquet(OUT / "cold_items.parquet")["anime_idx"].to_list()
     print(f"  cold items H: {len(cold):,}")
 
-    # ---- eval_seen: TRƯỚC khi vứt row nào (mọi status của eval user) ----
+    # ---- eval_seen: before any row is dropped (every status of eval users) ----
     eval_seen = (
         base.filter(pl.col("split_code") > 0)
         .group_by("user_idx")
@@ -97,21 +93,21 @@ def main():
     EX = OUT / "examples"
     is_cold = pl.col("anime_idx").is_in(cold)
 
-    # ---- cold queries: positive-H của eval user; positive-H của train user vứt ----
+    # ---- cold queries: eval users' positives in H; train users' positives in H are dropped ----
     cold_total = 0
     for name, code in [("val_cold", 1), ("test_cold", 2)]:
         d = EX / f"split={name}"
         d.mkdir(parents=True, exist_ok=True)
         ex = pos.filter(is_cold & (pl.col("split_code") == code)).select("user_idx", "anime_idx", "score")
         ex.write_parquet(d / "part-0.parquet")
-        assert ex.filter(pl.col("anime_idx") < 2).height == 0, f"{name} chứa PAD/OOV"
+        assert ex.filter(pl.col("anime_idx") < 2).height == 0, f"{name} contains PAD/OOV"
         nu = ex["user_idx"].n_unique()
         cold_total += ex.height
         print(f"  {name:<10} {ex.height:>9,} pairs / {nu:,} users")
-    print(f"  cold pairs tổng: {cold_total:,}  (gate D9: <20k -> nâng COLD_FRAC, re-run 01->06)")
-    pos = pos.filter(~is_cold)                       # warm pool (H rớt khỏi train + support)
+    print(f"  cold pairs total: {cold_total:,}  (below 20k -> raise COLD_FRAC, re-run 01->06)")
+    pos = pos.filter(~is_cold)                       # warm pool (H leaves train and support)
 
-    # ---- tie hash (reproducible) + warm query selection trên WARM pool ----
+    # ---- tie hash (reproducible) + warm query selection on the warm pool ----
     pos = pos.with_columns(
         pl.struct("user_idx", "anime_idx").hash(seed=SEED).alias("tie")
     ).with_columns(
@@ -120,16 +116,16 @@ def main():
     )
     n_query = pl.min_horizontal(
         pl.max_horizontal((EVAL_QUERY_FRAC * pl.col("n_warm")).round(0), pl.lit(1.0)),
-        (pl.col("n_warm") - 1).cast(pl.Float64),     # n_warm<2 -> n_query<=0 -> không có query
+        (pl.col("n_warm") - 1).cast(pl.Float64),     # n_warm<2 -> n_query<=0 -> no query
     )
     is_eval = pl.col("split_code") > 0
     pos = pos.with_columns((is_eval & (pl.col("r_tie") <= n_query)).alias("is_query"))
     pos = pos.with_columns(
         pl.when(is_eval).then(pl.col("is_query")).otherwise(True).alias("is_example"),
         pl.when(is_eval).then(~pl.col("is_query")).otherwise(True).alias("is_history"),
-    ).drop("r_tie", "n_warm", "is_query")  # free RAM trước sort history
+    ).drop("r_tie", "n_warm", "is_query")  # free RAM before the history sort
 
-    # ---- warm examples: partition theo split ----
+    # ---- warm examples, partitioned by split ----
     print("examples per split (warm):")
     for name, code in SPLIT_CODE.items():
         d = EX / f"split={name}"
@@ -139,10 +135,10 @@ def main():
         )
         ex.write_parquet(d / "part-0.parquet")
         print(f"  {name:<6} {ex.height:>10,}")
-        assert ex.filter(pl.col("anime_idx") < 2).height == 0, "example chứa PAD/OOV"
-        assert ex.filter(pl.col("anime_idx").is_in(cold)).height == 0, f"{name} chứa cold item"
+        assert ex.filter(pl.col("anime_idx") < 2).height == 0, "example contains PAD/OOV"
+        assert ex.filter(pl.col("anime_idx").is_in(cold)).height == 0, f"{name} contains a cold item"
 
-    # ---- history: FULL (score desc, tie asc) trên history-eligible — KHÔNG head(K) ----
+    # ---- history: full (score desc, ties asc) over history-eligible rows, no head(K) ----
     hist = (
         pos.filter("is_history")
         .sort(["user_idx", "score", "tie"], descending=[False, True, False])
@@ -153,7 +149,7 @@ def main():
         )
     )
 
-    # ---- hard_neg: − H, dedup, sort, cap ----
+    # ---- hard_neg: minus H, dedup, sort, cap ----
     hard = (
         hard.filter(~is_cold)
         .group_by("user_idx")
@@ -184,24 +180,24 @@ def main():
     chk = users.select(
         (pl.col("history_ids").list.len() == pl.col("history_scores").list.len()).all().alias("aligned"),
     )
-    assert chk["aligned"].item(), "history_ids/scores lệch độ dài"
+    assert chk["aligned"].item(), "history_ids/scores lengths differ"
 
     hist_exp = users.select("user_idx", pl.col("history_ids").alias("aid")).explode("aid")
-    assert hist_exp.filter(pl.col("aid").is_in(cold)).height == 0, "LEAK: history chứa cold item!"
+    assert hist_exp.filter(pl.col("aid").is_in(cold)).height == 0, "LEAK: history contains a cold item!"
     hn_exp = users.select(pl.col("hard_neg_ids").alias("aid")).explode("aid").drop_nulls()
-    assert hn_exp.filter(pl.col("aid").is_in(cold)).height == 0, "LEAK: hard_neg chứa cold item!"
+    assert hn_exp.filter(pl.col("aid").is_in(cold)).height == 0, "LEAK: hard_neg contains a cold item!"
 
-    # leak: eval example (warm + cold) ∩ history = ∅
+    # leak check: no eval example (warm or cold) may be in the history
     eval_ex = pl.concat([
         pl.read_parquet(EX / f"split={s}" / "part-0.parquet")
         for s in ["val", "test", "val_cold", "test_cold"]
     ])
     leak = eval_ex.join(hist_exp, left_on=["user_idx", "anime_idx"],
                         right_on=["user_idx", "aid"], how="inner")
-    print(f"  leak (eval example ∈ history): {leak.height}")
-    assert leak.height == 0, "LEAK: eval example nằm trong history!"
+    print(f"  leak (eval example in history): {leak.height}")
+    assert leak.height == 0, "LEAK: an eval example is in the history!"
 
-    # seen ⊇ history của eval user (mask v2 phải phủ được mọi thứ user từng chạm)
+    # seen must contain the eval users' history (the mask has to cover everything they touched)
     seen_exp = eval_seen.explode("seen_ids")
     eval_hist = (
         users.filter(pl.col("split") != "train")
@@ -209,8 +205,8 @@ def main():
     )
     not_seen = eval_hist.join(seen_exp, left_on=["user_idx", "aid"],
                               right_on=["user_idx", "seen_ids"], how="anti")
-    assert not_seen.height == 0, "eval history có item ngoài seen!"
-    print("  seen ⊇ history (eval users) OK")
+    assert not_seen.height == 0, "eval history has items outside seen!"
+    print("  seen contains history (eval users) OK")
     print("DONE 05.")
 
 

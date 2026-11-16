@@ -1,4 +1,4 @@
-"""FastAPI dependencies — service được tạo 1 lần trong lifespan, lưu ở app.state."""
+"""FastAPI dependencies: the service is built once in the lifespan and kept on app.state."""
 from __future__ import annotations
 
 from fastapi import Request

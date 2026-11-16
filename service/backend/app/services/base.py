@@ -1,20 +1,20 @@
-"""Interface chung cho service gợi ý — Mock và Real cùng implement.
+"""Common interface of the recommendation services: MockService and RealService implement it.
 
-Thêm backend logic mới (vd recommend theo nhiều user, theo genre…) = thêm method ở đây
-rồi implement ở cả 2 lớp, route chỉ gọi qua interface → dễ scale, không lệ thuộc model.
+New backend logic (e.g. recommending for several users, by genre...) = a new method here,
+implemented in both classes; routes only call through the interface, so they never depend on
+the model.
 """
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from pathlib import Path
-from typing import List, Optional
+from typing import List
 
 from app.schemas.anime import SearchResult
 from app.schemas.recommend import RecommendRequest, RecommendResponse
 
 
 class RecommenderService(ABC):
-    model_loaded: bool = False         # health endpoint đọc cờ này
+    model_loaded: bool = False         # read by the health endpoint
 
     @abstractmethod
     def recommend(self, req: RecommendRequest) -> RecommendResponse:
@@ -22,15 +22,5 @@ class RecommenderService(ABC):
 
     @abstractmethod
     def search(self, q: str, limit: int) -> List[SearchResult]:
-        """Autocomplete title → candidate cho guest picker (GET /api/search)."""
-        ...
-
-    @abstractmethod
-    def map_payload(self) -> bytes:
-        """JSON bytes cho GET /api/map (points/clusters/meta) — serialize sẵn, route trả thẳng."""
-        ...
-
-    @abstractmethod
-    def territory_path(self) -> Optional[Path]:
-        """Path PNG nền territory cho GET /api/map/territory.png (None = chưa có)."""
+        """Title autocomplete -> candidates for the guest picker (GET /api/search)."""
         ...

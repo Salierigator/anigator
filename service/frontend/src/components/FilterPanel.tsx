@@ -33,7 +33,7 @@ function getSortDirectionLabel(key: SortKey, isAsc: boolean) {
 }
 
 /**
- * Panel filter/sort/số hiển thị dưới form search. Nằm cố định trong flow ở đầu trang.
+ * Filter/sort/display-count panel below the search form, in the normal page flow at the top.
  */
 export function FilterPanel({ hasPool, facetOptions, prefs, updatePrefs }: Props) {
   const handleSortByChange = (newSortBy: SortKey) => {

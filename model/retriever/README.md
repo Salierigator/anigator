@@ -52,7 +52,7 @@ In-batch **sampled-softmax (InfoNCE)** with a temperature (`tau = 0.07`):
 
 - **Positives**: `status ∈ {completed, watching}` and `score ∉ [1,4]` — i.e. things the user finished/kept watching and didn't pan.
 - **In-batch negatives**: every other anchor's positive in the batch. A **logQ correction** subtracts each item's log-frequency so popular titles aren't over-penalized as negatives; false negatives (two anchors sharing the same positive) are masked out.
-- **Hard negatives** (`m = 3` per anchor): `dropped ∪ (score ∈ [1,4])` — things the user actively disliked. Added to the denominator, no logQ.
+- **Hard negatives** (`m = 5` per anchor in the shipped config): `dropped ∪ (score ∈ [1,4])` — things the user actively disliked. Added to the denominator, no logQ.
 
 Checkpoint selection metric is **recall@200 on the warm validation set**.
 
@@ -65,29 +65,29 @@ Checkpoint selection metric is **recall@200 on the warm validation set**.
 ## Data flow
 
 ```
-data/cleaned/                data_prep/ 01..06                train-data/            export.py            artifacts/
+data/clean/                  data_prep/ 01..06                train/retriever/data/  export.py            export/
 (details, profiles,   ─────►  re-index ids, encode    ─────►  feature_spec.json,  ─────►  best.pt +   ─────►  item_vectors.npy,
  ratings ~3 GB)               features, split,                item_features,              spec           user_tower.pt,
                               build history + hard-negs,      users, examples,                           item_index.parquet, …
                               compute logQ                    logq
                                     │
-                                    ▼  train on Colab (train.ipynb, GPU)
-                              checkpoints/best.pt
+                                    ▼  train on a GPU (runs.py, on Colab)
+                              train/retriever/runs/best.pt
 ```
 
-`data_prep/` streams the ~3 GB `ratings.csv` with polars (never loads it whole), re-indexes ids, encodes features, builds the user/item/cold splits, samples history + hard-negs, and computes logQ. `prep_config.py` is the single source of truth for seeds, caps, and label definitions. Training runs on Colab; the winning `best.pt` is exported into `artifacts/`, which the ranker and service **read only** — they never import training code, so serving can't silently drift from what was trained.
+`data_prep/` streams the ~3 GB `ratings.csv` with polars (never loads it whole), re-indexes ids, encodes features, builds the user/item/cold splits, samples history + hard-negs, and computes logQ. `prep_config.py` is the single source of truth for seeds, caps, and label definitions. Training runs on Colab; the winning `best.pt` is exported into `export/`, which the ranker and service **read only** — they never import training code, so serving can't silently drift from what was trained.
 
 ## Files
 
 | File | Purpose |
 |---|---|
-| `data_prep/01..06` + `99_verify.py` | `data/cleaned/` → `train-data/`: re-index ids, encode features, split, history, hard-negs, logQ |
+| `data_prep/01..06` + `99_verify.py` | `data/clean/` → `train/retriever/data/`: re-index ids, encode features, split, history, hard-negs, logQ |
 | `data_prep/prep_config.py` | Single source of truth for seeds/caps/label definitions |
-| `src/` | Model + training: `config`, `data`, `model`, `loss`, `metrics`, `train`, `search` |
-| `export.py` | `checkpoints/best.pt` → `artifacts/` (run whenever best.pt changes) |
-| `test_export.py` | Rebuilds the encoder from `artifacts/` and re-runs eval — catches export drift |
-| `train.ipynb` | Colab training notebook (needs GPU) |
-| `tests/` | Padding/masking invariants; no train-data required |
+| `config`, `data`, `model`, `loss`, `metrics`, `train`, `search`, `checkpoint` | Model + training modules of the `model.retriever` package |
+| `export.py` | `train/retriever/runs/best.pt` → `export/` (run whenever best.pt changes) |
+| `check_export.py` | Rebuilds the encoder from `export/` and re-runs eval — catches export drift |
+| `runs.py` | Named runs, grid sweeps and the warm + cold leaderboards; the training entrypoint (needs a GPU) |
+| `tests/` | Padding/masking invariants; no training data required |
 
 ## Commands
 
@@ -96,13 +96,18 @@ data/cleaned/                data_prep/ 01..06                train-data/       
 for s in model/retriever/data_prep/0[1-6]_*.py; do venv/bin/python "$s"; done
 venv/bin/python model/retriever/data_prep/99_verify.py
 
-# local smoke train (subset, MPS) — writes checkpoints/smoke/, never touches best.pt
-cd model/retriever/src && ../../../venv/bin/python train.py --smoke
+# local smoke train (subset, MPS) — writes train/retriever/runs/smoke/, never touches best.pt
+venv/bin/python -m model.retriever.train --smoke
+
+# named runs, grid sweeps, leaderboards (full runs need a GPU; --smoke checks the pipeline locally)
+venv/bin/python -m model.retriever.runs train final --preset final [--smoke]
+venv/bin/python -m model.retriever.runs sweep batch_hardneg [--dry-run]
+venv/bin/python -m model.retriever.runs leaderboard
 
 # export + validate (always run as a pair)
-venv/bin/python model/retriever/export.py && venv/bin/python model/retriever/test_export.py
+venv/bin/python -m model.retriever.export && venv/bin/python -m model.retriever.check_export
 
 venv/bin/python -m pytest model/retriever/tests -q
 ```
 
-Real training happens on Colab; download the winning `best.pt` into `checkpoints/`, then export.
+Real training runs `runs.py` on a Colab GPU; download the winning `best.pt` into `train/retriever/runs/`, then export.

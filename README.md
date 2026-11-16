@@ -25,23 +25,27 @@ Two-stage recommender architecture (retrieval + rerank) — the standard shape f
 For a detailed description of each stage, see the component README: [retriever](model/retriever/README.md), [ranker](model/ranker/README.md), and [service](service/README.md).
 
 ```
-data/  ──>  model/      ──>  artifacts/    ──>  service/
+data/  ──>  model/      ──>  export/       ──>  service/
 raw         retriever        item_vectors       FastAPI + React
-cleaned     + ranker         user_tower         (read-only consumer)
+clean       + ranker         user_tower         (read-only consumer)
                              ranker.txt
 ```
 
-`artifacts/` is the contract between training and serving: the retriever and ranker save their trained models here, and the service only reads them. Neither side imports the other's training code, so the serving path cannot silently drift from what was trained.
+`export/` is the contract between training and serving: the retriever and ranker save their trained models here, and the service only reads them. Neither side imports the other's training code, so the serving path cannot silently drift from what was trained.
 
 ## Repository layout
 
 | Path | What's in it |
 |---|---|
-| `data/` | Crawler (TODO), cleaning notebook, schema samples; raw/cleaned CSVs are not committed |
-| `model/retriever/` | Two-tower model: data prep, training, export to `artifacts/` |
-| `model/ranker/` | LightGBM reranker: pool building, training, eval gate, export to `artifacts/` |
-| `artifacts/` | Model exports (not committed) |
-| `service/backend/` | FastAPI app + CLI (`recommend.py`), read-only consumer of `artifacts/` |
+| `crawler/` | MyAnimeList crawler, writes `data/raw/` |
+| `cleaning/` | `data/raw/` → `data/clean/` (pipeline being rewritten) |
+| `data/` | Schema samples; raw/clean data are not committed |
+| `model/retriever/` | Two-tower model: data prep, training, export to `export/` |
+| `model/ranker/` | LightGBM reranker: pool building, training, eval gate, export to `export/` |
+| `model/recommender.py` | Serving core (`Recommender`): retrieve, rerank, cold section; the one class the service imports |
+| `train/` | Training data and checkpoints (not committed) |
+| `export/` | Model exports (not committed) |
+| `service/backend/` | FastAPI app + CLI (`recommend.py`), read-only consumer of `export/` |
 | `service/frontend/` | React + Vite + TypeScript UI |
 
 ## Quickstart (Local run)
@@ -57,18 +61,19 @@ cd anime-recommender
 python3 -m venv venv
 source venv/bin/activate           # Windows: venv\Scripts\activate
 pip install -r requirements.txt
+pip install -r service/backend/requirements.txt   # FastAPI + uvicorn for the backend
 
 # 3. (Optional — real mode only) add your MAL Client ID
 echo "MAL_CLIENT_ID=your_id_here" > service/.env
 ```
 
-> **Note:** The run commands below need the trained model files in `artifacts/` — a download link will be added later. Mock mode runs without them.
+> **Note:** The run commands below need the trained model files in `export/` — a download link will be added later. Mock mode runs without them.
 
 ```bash
 # Backend, mock mode — returns fixtures, loads no model. Best for frontend work.
 cd service/backend && MOCK_MODE=1 uvicorn app.main:app --reload --port 8000
 
-# Backend, real mode — needs artifacts/; MAL_CLIENT_ID in service/.env for live usernames
+# Backend, real mode — needs export/; MAL_CLIENT_ID in service/.env for live usernames
 cd service/backend && MOCK_MODE=0 uvicorn app.main:app --port 8000
 
 # Frontend, run it in another terminal
@@ -82,9 +87,9 @@ venv/bin/python service/backend/recommend.py <mal-username> --top-k 20
 
 ## Data & Training
 
-The datasets are MAL-derived and gigabytes in size, so they are not part of this repo; `data/samples/` holds the first rows of each file as a schema reference. The model currently in `artifacts/` was trained on a mid-2025 snapshot — a fresh crawl is currently running (see [`data/crawler/README.md`](data/crawler/README.md)).
+The datasets are MAL-derived and gigabytes in size, so they are not part of this repo; `data/samples/` holds the first rows of each file as a schema reference. The model currently in `export/` was trained on a mid-2025 snapshot. A fresh 2026 crawl of user ratings and profiles is done (see [`crawler/README.md`](crawler/README.md)); its cleaning pipeline ([`cleaning/`](cleaning/README.md)) is the next step.
 
-Retriever training runs on Colab GPU; the ranker trains locally on CPU. Both write into `artifacts/`, and the service picks up a new model with no code change — see [`model/README.md`](model/README.md) for the full retrain loop.
+Retriever training runs on Colab GPU; the ranker trains locally on CPU. Both write into `export/`, and the service picks up a new model with no code change — see [`model/README.md`](model/README.md) for the full retrain loop.
 
 ## History
 

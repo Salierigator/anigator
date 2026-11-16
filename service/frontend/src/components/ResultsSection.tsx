@@ -4,13 +4,13 @@ import { AnimeCard } from './AnimeCard';
 import type { AnimeItem, PosterEntry, SearchResultItem } from '../types';
 
 interface Props {
-  variant: 'main' | 'cold'; // cold: title/count nhạt hơn, grid mờ nhẹ, không đánh số rank
+  variant: 'main' | 'cold'; // cold: lighter title/count, slightly faded grid, no rank numbers
   title: string;
   isLoading: boolean;
-  totalCount: number; // số item sau filter (trước khi cắt theo Show Main/Cold)
+  totalCount: number; // items after filtering (before the Show Main/Cold cut)
   isFiltered: boolean;
   headerExtra?: ReactNode;
-  items: AnimeItem[]; // đã sort + slice
+  items: AnimeItem[]; // sorted and sliced
   posters: Record<number, PosterEntry>;
   isGuestMode: boolean;
   watchedSet: Set<number>;

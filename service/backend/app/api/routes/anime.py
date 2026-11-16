@@ -1,5 +1,5 @@
-"""GET /api/anime/{mal_id} — chi tiết cho modal (MAL v2 + cache, thay Jikan client-side).
-GET /api/search?q= — autocomplete title cho guest picker. Xem service/API_CONTRACT.md."""
+"""GET /api/anime/{mal_id}: details for the anime modal (MAL v2 + file cache).
+GET /api/search?q=: title autocomplete for the guest picker."""
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response

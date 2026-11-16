@@ -1,15 +1,17 @@
 """
-MyAnimeList data fetchers for the recommender service (test flow only — no model/UI).
+MyAnimeList fetchers for the service.
 
-Two data needs:
-  1. Anime metadata by mal_id           -> MAL API v2  (X-MAL-CLIENT-ID header)
-  2. User history + demographics + favs:
-       - scored interaction history     -> MAL API v2  /users/{user}/animelist (paginated)
+  1. Anime metadata and search          -> MAL API v2 (X-MAL-CLIENT-ID header)
+  2. User history + profile:
+       - scored interaction history     -> MAL API v2 /users/{user}/animelist (paginated)
        - demographics + stats + favs    -> Jikan API v4 /users/{user}/full
 
 Why Jikan for the profile: MAL API v2 only exposes the *authenticated* user's profile
 (gender/birthday/location), not arbitrary users, and it has no favorites endpoint.
 Jikan reads public MAL profiles, so demographics + favorites come from there.
+
+Importing this module reads MAL_CLIENT_ID (environment, then service/.env) and raises
+RuntimeError when it is missing, so callers import it lazily.
 """
 from __future__ import annotations
 
@@ -19,8 +21,7 @@ from pathlib import Path
 
 import requests
 
-# --- config -----------------------------------------------------------------
-ENV_PATH = Path(__file__).resolve().parents[3] / ".env"  # service/.env (app/clients/ → service/)
+ENV_PATH = Path(__file__).resolve().parents[3] / ".env"  # service/.env
 MAL_BASE = "https://api.myanimelist.net/v2"
 JIKAN_BASE = "https://api.jikan.moe/v4"
 TIMEOUT = 30
@@ -76,7 +77,6 @@ def _get(url, *, headers=None, params=None, retries=2):
     return None
 
 
-# --- 1. anime metadata ------------------------------------------------------
 def get_anime_metadata(anime_id, fields=ANIME_FIELDS):
     return _get(
         f"{MAL_BASE}/anime/{anime_id}",
@@ -85,18 +85,9 @@ def get_anime_metadata(anime_id, fields=ANIME_FIELDS):
     )
 
 
-def get_main_picture(anime_id):
-    """Poster URL (large, fallback medium) from MAL v2, or None on failure."""
-    data = get_anime_metadata(anime_id, fields="main_picture")
-    if not data:
-        return None
-    pic = data.get("main_picture") or {}
-    return pic.get("large") or pic.get("medium")
-
-
 def user_exists(username):
-    """MAL v2 animelist limit=1 — True/False nếu xác định được (403 = list private nhưng
-    user TỒN TẠI), None = không rõ (network/5xx) → caller đừng kết luận."""
+    """MAL v2 animelist with limit=1: True/False when definite (403 = private list, but the user
+    exists); None = unknown (network/5xx), so the caller must not conclude anything."""
     try:
         resp = requests.get(f"{MAL_BASE}/users/{username}/animelist",
                             headers=MAL_HEADERS, params={"limit": 1}, timeout=10)
@@ -125,7 +116,6 @@ def search_anime(q, limit=10):
     return [e["node"] for e in data.get("data", [])] if data else []
 
 
-# --- 2a. user scored history (MAL v2, paginated) ----------------------------
 def get_user_anime_list(username, fields=ANIMELIST_FIELDS, limit=1000):
     url = f"{MAL_BASE}/users/{username}/animelist"
     params = {"limit": limit, "fields": fields, "nsfw": "true"}
@@ -144,7 +134,6 @@ def get_user_anime_list(username, fields=ANIMELIST_FIELDS, limit=1000):
     return out
 
 
-# --- 2b. demographics + statistics + favorites (Jikan v4) -------------------
 def get_user_profile(username):
     """Jikan /users/{user}/full -> demographics + statistics + favorites in one call."""
     data = _get(f"{JIKAN_BASE}/users/{username}/full")

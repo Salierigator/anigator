@@ -5,14 +5,14 @@ Stage 2 of the recommender: a **LightGBM `lambdarank`** model that reranks the r
 ```
 retriever top-200 (warm)  ──►  29 features per (user, candidate)  ──►  LightGBM  ──►  score
                                                                               │
-                                        final order = blend( α·rank_norm(score) + (1-α)·cosine )
+                              final order = (1-α)·rank_norm(cosine) + α·rank_norm(score)
 ```
 
 ## Input: the candidate pool
 
 Candidates are produced by exactly the same code path at train, eval, and serve time (`pool.py`), so the score distribution the model trains on matches what it sees in production:
 
-1. Encode the user vector `U` from their watch history (reusing the retriever's `UserEncoder` from `artifacts/`).
+1. Encode the user vector `U` from their watch history (reusing the retriever's `UserEncoder` from `export/`).
 2. `cosine(U, every item)`, mask out PAD/OOV and already-seen items.
 3. Take the **top-200 warm items** as the pool (cold items are filtered out here — see below).
 
@@ -63,37 +63,37 @@ grade:  10 → 4,   9 → 3,   7–8 → 2,   {0,5,6} → 1,   non-target → 0
 
 ## Cold serving (separate channel)
 
-Cold items are **not** rescored by the ranker. The `α=1` ranker, trained on warm pools, pushes cold items to the bottom — so at serve time cold items are returned as their **own section ordered by retriever cosine**. This split (verified against two alternatives) keeps both warm ranking and cold discovery near-optimal. The policy lives in `ranker_meta.json::cold_serving`; the service reads it, hardcodes nothing.
+Cold items are **not** rescored by the ranker. The `α=1` ranker, trained on warm pools, pushes cold items to the bottom — so at serve time cold items are returned as their **own section ordered by retriever cosine**. This split (verified against two alternatives) keeps both warm ranking and cold discovery near-optimal. `ranker_meta.json::cold_serving` records the policy; the split itself is implemented in `model/recommender.py`.
 
 ## Output
 
-Exactly two files, written by `export.py`: `artifacts/ranker.txt` (the model) and `artifacts/ranker_meta.json` (feature order, blend α, retrieval depth, cold policy). The service reads these and needs no code change across retrains.
+Exactly two files, written by `export.py`: `export/ranker.txt` (the model) and `export/ranker_meta.json` (feature order, blend α, retrieval depth, cold policy). The service reads these and needs no code change across retrains.
 
 ## Files
 
 | File | Purpose |
 |---|---|
-| `src/config.py` | Paths + knobs (seed, pool depth, K, …) and label grading |
-| `src/user_encode.py` | Rebuilds the user encoder from `artifacts/` — **shared with the service** |
-| `src/features.py` | The 29 `FEATURE_NAMES`, item feature table, cold policy, frame building |
-| `src/pool.py` | Ragged history, user encoding, top-K masking, cross features |
-| `src/metrics.py` | Two-stage recall/nDCG (mirrors the retriever's) + blend — pure numpy |
-| `src/train_lgbm.py` | Local sweep → `models/<run>/` + leaderboard |
-| `data_prep/build_eval.py` / `build_train.py` | Eval pools / training dataset from `artifacts/` |
+| `config.py` | Paths + knobs (seed, pool depth, K, …) and label grading |
+| `user_encode.py` | Rebuilds the user encoder from `export/` — **shared with the service** |
+| `features.py` | The 29 `FEATURE_NAMES`, item feature table, cold policy, frame building |
+| `pool.py` | Ragged history, user encoding, top-K masking, cross features |
+| `metrics.py` | Two-stage recall/nDCG (mirrors the retriever's) + blend — pure numpy |
+| `train_lgbm.py` | Local sweep → `train/ranker/runs/<run>/` + leaderboard |
+| `data_prep/build_eval.py` / `build_train.py` | Eval pools / training dataset from `export/` |
 | `eval.py` | Sanity gate, blend sweep, Pareto selection over cosine |
-| `export.py` | Winner → `artifacts/ranker.txt` + `ranker_meta.json` |
+| `export.py` | Winner → `export/ranker.txt` + `ranker_meta.json` |
 
 ## Commands
 
 Run from the repo root, in this order:
 
 ```bash
-venv/bin/python model/ranker/data_prep/build_eval.py
-venv/bin/python model/ranker/eval.py --baseline-only    # gate: cosine must reproduce eval_reference.json
-venv/bin/python model/ranker/data_prep/build_train.py
-venv/bin/python model/ranker/src/train_lgbm.py          # ~40 min local, 4 threads (--smoke for a slice)
-venv/bin/python model/ranker/eval.py                    # select winner → models/eval_selection.json
-venv/bin/python model/ranker/export.py
+venv/bin/python -m model.ranker.data_prep.build_eval
+venv/bin/python -m model.ranker.eval --baseline-only # gate: cosine must reproduce eval_reference.json
+venv/bin/python -m model.ranker.data_prep.build_train
+venv/bin/python -m model.ranker.train_lgbm           # ~40 min local, 4 threads (--smoke for a slice)
+venv/bin/python -m model.ranker.eval                 # select winner → train/ranker/runs/eval_selection.json
+venv/bin/python -m model.ranker.export               # no options: running it writes export/ at once
 venv/bin/python -m pytest model/ranker/tests -q
 ```
 

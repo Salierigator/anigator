@@ -1,4 +1,4 @@
-"""POST /api/recommend — username/mal_ids → {main, cold, meta}. Xem service/API_CONTRACT.md."""
+"""POST /api/recommend: username or mal_ids -> {main, cold, meta}."""
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends

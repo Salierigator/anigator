@@ -2,14 +2,14 @@ import { useEffect, useRef, useState } from 'react';
 import { ExternalLink, Eye, Heart, Users } from 'lucide-react';
 import type { AnimeItem, PosterEntry } from '../types';
 
-// 1234567 → "1.2M", 847000 → "847K" — gọn hơn số thô trên card.
+// 1234567 -> "1.2M", 847000 -> "847K": shorter than raw numbers on a card.
 const membersFmt = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 });
 
 interface Props {
   anime: AnimeItem;
   rank?: number;
   onClick?: () => void;
-  entry?: PosterEntry; // từ batch /api/posters (MAL v2). undefined = batch chưa xong.
+  entry?: PosterEntry; // from the /api/posters batch (MAL v2); undefined = batch not done yet
   isGuestMode?: boolean;
   isSeen?: boolean;
   isLoved?: boolean;
@@ -18,17 +18,18 @@ interface Props {
 }
 
 export function AnimeCard({ anime, rank, onClick, entry, isGuestMode, isSeen, isLoved, onSeen, onLove }: Props) {
-  // undefined = batch /api/posters chưa xong (spinner); null = MAL v2 không có ảnh; string = URL.
+  // undefined = /api/posters batch not done (spinner); null = MAL v2 has no image; string = URL.
   const posterUrl = entry ? entry.poster : undefined;
   const [isImageLoaded, setIsImageLoaded] = useState<boolean>(false);
   const [broken, setBroken] = useState<boolean>(false);
   const imgRef = useRef<HTMLImageElement>(null);
 
-  // Poster đến TỪ /api/posters (MAL v2, cache backend). <img> load lỗi → coi như không có ảnh.
+  // The poster comes FROM /api/posters (MAL v2, cached by the backend). An <img> load error counts as no image.
   const imageUrl = typeof posterUrl === 'string' && !broken ? posterUrl : null;
 
-  // Đổi URL ảnh → reset fade-in. Nếu ảnh ĐÃ nằm trong browser cache (modal vừa load, hoặc search
-  // lại phim trùng) thì <img> onLoad KHÔNG bắn → tự set loaded qua img.complete để không kẹt spinner.
+  // A new image URL resets the fade-in. If the image is ALREADY in the browser cache (just loaded by
+  // the modal, or the same anime in a new search), <img> onLoad does NOT fire, so img.complete sets
+  // loaded and the spinner cannot get stuck.
   useEffect(() => {
     if (!imageUrl) return;
     const img = imgRef.current;
@@ -37,13 +38,13 @@ export function AnimeCard({ anime, rank, onClick, entry, isGuestMode, isSeen, is
 
   const handleImageError = () => setBroken(true);
 
-  // Batch chưa xong → còn khả năng ra ảnh → spinner (đừng vội show "No Image").
+  // Batch not done: an image may still come, so show the spinner (not "No Image" yet).
   const awaitingBatch = posterUrl === undefined;
   const showSpinner = awaitingBatch || (!!imageUrl && !isImageLoaded);
   const showNoImage = !imageUrl && !awaitingBatch;
 
-  // MAL score + members: ưu tiên bản MỚI từ batch backend (MAL v2, khớp MAL) → fallback snapshot pool.
-  // Lọc qua Number.isFinite → null/undefined/NaN đều thành "—" (không còn "NaN" trên card).
+  // MAL score + members: prefer the FRESH values from the backend batch (MAL v2, matches MAL), else
+  // the pool snapshot. Number.isFinite turns null/undefined/NaN into the placeholder dash, never "NaN".
   const rawScore = entry?.score ?? anime.mal_score;
   const rawMembers = entry?.members ?? anime.members;
   const score = typeof rawScore === 'number' && Number.isFinite(rawScore) ? rawScore : null;
@@ -141,7 +142,7 @@ export function AnimeCard({ anime, rank, onClick, entry, isGuestMode, isSeen, is
             </div>
           </div>
 
-          {/* Scores — MAL Score + Popularity từ batch /api/posters (MAL v2) */}
+          {/* Scores: MAL Score + Popularity (member count) from the /api/posters batch (MAL v2) */}
           <div className="flex items-center gap-4 mt-2">
             <div className="flex flex-col">
               <span className="text-[10px] text-gray-400 uppercase tracking-wider">MAL Score</span>

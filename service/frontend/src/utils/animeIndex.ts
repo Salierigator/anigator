@@ -1,8 +1,8 @@
-/** Search anime client-side — thay cho proxy MAL v2 qua /api/search.
+/** Client-side anime search for the guest picker.
  *
- * Index tĩnh ở public/anime-index.json (sinh bởi scripts/build_search_index.py), tải lazy
- * lúc user mở tab "Pick Favorites". Đổi lại 1 lần tải ~1.2 MB (gzip) thì search tức thì,
- * không phụ thuộc backend — vốn ngủ sau 15 phút trên free tier.
+ * A prebuilt index in public/anime-index.json (made by scripts/build_search_index.py), loaded lazily
+ * when the user opens the "Pick Favorites" tab. One ~1.2 MB (gzip) download buys instant search that
+ * does not depend on the backend, which sleeps after 15 minutes on the free tier.
  */
 import MiniSearch from 'minisearch';
 import type { SearchResultItem } from '../types';
@@ -14,7 +14,7 @@ export type AnimeSearcher = (q: string, limit: number) => SearchResultItem[];
 
 const POSTER_PREFIX = 'https://cdn.myanimelist.net/images/anime/';
 
-/** Bỏ dấu (ō→o, ū→u) + thường hoá, để "yuru yuri" khớp "Yuru Yuri", "chuunibyou" khớp "Chūnibyō". */
+/** Strip diacritics (ō -> o, ū -> u) and lowercase, so "yuru yuri" matches "Yuru Yuri" and "chunibyo" matches "Chūnibyō". */
 const normalize = (term: string) =>
   term.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 
@@ -31,11 +31,11 @@ const toItem = (r: Row): SearchResultItem => ({
 
 let indexPromise: Promise<AnimeSearcher> | null = null;
 
-/** Tải + dựng index (memo hoá: gọi nhiều lần chỉ chạy 1 lần). */
+/** Load and build the index (memoized: repeated calls run it once). */
 export function loadAnimeIndex() {
   if (!indexPromise) {
     indexPromise = build().catch(err => {
-      indexPromise = null;                       // cho retry lần sau nếu mạng lỗi
+      indexPromise = null;                       // allows a retry after a network error
       throw err;
     });
   }
@@ -51,18 +51,18 @@ async function build(): Promise<AnimeSearcher> {
 
   const mini = new MiniSearch<{ id: number; title: string; english: string; syn: string }>({
     fields: ['title', 'english', 'syn'],
-    storeFields: [],                             // giữ Row ở byId, đỡ nhân đôi bộ nhớ
+    storeFields: [],                             // rows live in byId, so memory is not doubled
     processTerm: normalize,
     searchOptions: {
-      prefix: true,                              // autocomplete: gõ dở vẫn ra
-      fuzzy: 0.2,                                // chịu được typo 1 ký tự
-      combineWith: 'AND',                        // "kimi no na" phải khớp cả 3 term
+      prefix: true,                              // autocomplete: partial words match
+      fuzzy: 0.2,                                // tolerates a one-character typo
+      combineWith: 'AND',                        // "kimi no na" must match all 3 terms
       boost: { title: 3, english: 3, syn: 1.5 },
       boostDocument: (id: number) => {
         const r = byId.get(id as number)!;
-        // members^0.3: "gin" ra Gintama (1.1M) chứ không phải OVA lẻ khớp exact token.
-        // 0.3 là đầu plateau đo trên 25 query mẫu (0.2→18/25, 0.3→21/25, tới 0.45 không đổi).
-        // in_corpus=0 bị dìm nhưng vẫn hiện: user cần biết "model chưa có", không phải im lặng.
+        // members^0.3: "gin" ranks Gintama above an obscure OVA that matches the token exactly
+        // (0.3 was tuned on sample queries; higher exponents gained nothing).
+        // in_corpus=0 is pushed down but still shown: the user needs to see "not in the model", not silence.
         return Math.pow(1 + r[7], 0.3) * (r[9] ? 1 : 0.6);
       },
     },
@@ -72,8 +72,8 @@ async function build(): Promise<AnimeSearcher> {
     id: r[0], title: r[1], english: r[2], syn: r[3].join(' '),
   })));
 
-  /** Không có bonus này thì sequel đè bản gốc: "attack on titan" ra Final Season,
-   *  "code geass" ra R2. Khớp trọn tiêu đề > khớp phần đầu > khớp giữa chừng. */
+  /** Without this bonus, sequels beat the original: "attack on titan" gives Final Season,
+   *  "code geass" gives R2. Whole-title match > prefix match > match in the middle. */
   const exactness = (r: Row, nq: string) => {
     for (const t of [r[1], r[2]]) {
       if (!t) continue;
@@ -87,7 +87,7 @@ async function build(): Promise<AnimeSearcher> {
   return (q: string, limit: number): SearchResultItem[] => {
     const nq = normalize(q);
     return mini.search(q)
-      .slice(0, 50)                              // re-rank trong top 50, đủ rộng
+      .slice(0, 50)                              // re-rank within the top 50, wide enough
       .map(hit => {
         const r = byId.get(hit.id as number)!;
         return { r, score: hit.score * exactness(r, nq) };

@@ -23,7 +23,6 @@ export interface RecommendMeta {
   k_retrieve: number | null;
   mode: string;
   total_entries: number | null;
-  map_xy?: [number, number] | null;
 }
 
 export interface RecommendRequest {
@@ -41,39 +40,7 @@ export interface RecommendResponse {
   meta: RecommendMeta;
 }
 
-export interface MapPoints {
-  mal_id: number[];
-  title: string[];
-  x: number[];
-  y: number[];
-  label: number[];
-  popularity: number[];
-  is_cold: boolean[];
-}
-
-export interface MapCluster {
-  label: number;
-  name: string;
-  size: number;
-  examples: string;
-  cx: number;
-  cy: number;
-}
-
-export interface MapResponse {
-  points: MapPoints;
-  clusters: MapCluster[];
-  meta: {
-    k: number;
-    n_points: number;
-    extent: [number, number, number, number];
-    generated: string;
-    territory_url: string;
-    bg: string;
-  };
-}
-
-/** 1 entry từ POST /api/posters — poster + score/members MỚI (MAL v2), theo mal_id. */
+/** One entry of POST /api/posters: poster + fresh score/members (MAL v2), keyed by mal_id. */
 export interface PosterEntry {
   poster: string | null;
   score: number | null;
@@ -91,13 +58,13 @@ export interface SearchResultItem {
   in_corpus: boolean;
 }
 
-// ---- UI state types (client-side thuần, không phải shape API) ----
+// ---- UI state types (client-side only, not API shapes) ----
 
 export type Tab = 'username' | 'guest';
 
 export type SortKey = 'relevance' | 'score' | 'popularity' | 'date';
 
-/** Filter / sort / số hiển thị của MỖI tab — đổi các giá trị này KHÔNG gọi lại backend. */
+/** Filter / sort / display counts of EACH tab; changing them never calls the backend again. */
 export interface TabPrefs {
   genres: string[];
   themes: string[];
@@ -110,7 +77,7 @@ export interface TabPrefs {
   sortAsc: boolean;
 }
 
-/** Các lựa chọn filter khả dụng, gom từ pool hiện tại. */
+/** Available filter options, collected from the current pool. */
 export interface FacetOptions {
   genres: string[];
   themes: string[];

@@ -2,8 +2,6 @@ pandas
 numpy
 matplotlib
 seaborn
-jupyter
-ipykernel
 polars
 pyarrow
 torch
@@ -12,4 +10,4 @@ implicit
 lightgbm
 requests
 pytest
-sentence-transformers   # offline synopsis embedding (retriever/data_prep/07_synopsis_emb.py)
+sentence-transformers   # offline synopsis embeddings for the retriever's use_synopsis option

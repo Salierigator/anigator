@@ -15,15 +15,15 @@ function App() {
   const [activeTab, setActiveTab] = useState<Tab>('username');
   const hasInitializedRef = useRef(false);
 
-  // Filter/sort/số hiển thị theo tab (client-side thuần)
+  // Filter/sort/display counts per tab (client-side only)
   const { prefs, updatePrefs, updateTabPrefs } = useTabPrefs(activeTab);
 
-  // Guest picks (Love) + watched set (Seen) + persist localStorage
+  // Guest picks (Love) + watched set (Seen), persisted to localStorage
   const { guestPicks, setGuestPicks, watchedSet, setWatchedSet, toggleSeen, toggleLove } =
     useGuestState(hasInitializedRef);
 
-  // Posters cache map and tracking. Poster keyed theo mal_id là bất biến → GIỮ qua các lần search
-  // (search user khác trùng phim → dùng lại ngay, không load lại). Chỉ tăng dần, không reset.
+  // Posters cache map and tracking. A poster keyed by mal_id never changes, so it is KEPT across
+  // searches (another search with the same anime reuses it at once). It only grows, never resets.
   const [posters, setPosters] = useState<Record<number, PosterEntry>>({});
   const requestedIdsRef = useRef<Set<number>>(new Set());
 
@@ -52,14 +52,14 @@ function App() {
 
   const [selectedAnime, setSelectedAnime] = useState<AnimeItem | null>(null);
 
-  // Guest mode KHÔNG tự search khi picks/watchedSet đổi (sửa list thoải mái, không spam
-  // /api/recommend) — chỉ bắn lúc bấm submit, hoặc deep-link ?ids= lúc mount qua useUrlSync.
+  // Guest mode does NOT search on its own when picks/watchedSet change (the list can be edited freely
+  // without spamming /api/recommend): it fires only on submit, or for a ?ids= deep link on mount (useUrlSync).
 
   useEffect(() => {
     pingHealthAPI();
   }, []);
 
-  // Fetch posters (batch, debounce 200ms) cho các card đang hiển thị
+  // Fetch posters (batched, 200 ms debounce) for the cards on screen
   useEffect(() => {
     if (!currentPool) return;
     const displayedIds = [

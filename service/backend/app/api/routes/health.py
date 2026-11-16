@@ -1,4 +1,4 @@
-"""GET /api/health — trạng thái server + chế độ (mock/live)."""
+"""GET /api/health: server status and mode (mock/live)."""
 from __future__ import annotations
 
 from fastapi import APIRouter, Request

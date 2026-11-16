@@ -3,7 +3,7 @@ import { sortAnimeItems } from '../utils/sortAnime';
 import type { AnimeItem, FacetOptions, RecommendResponse, TabPrefs } from '../types';
 import type { UpdatePrefs } from './useTabPrefs';
 
-/** Pool hiện tại → facetOptions → filter → sort → slice; kèm dọn filter stale khi pool đổi. */
+/** Current pool -> facetOptions -> filter -> sort -> slice; also drops stale filters when the pool changes. */
 export function useResultsPipeline(
   currentPool: RecommendResponse | null,
   prefs: TabPrefs,
@@ -34,7 +34,7 @@ export function useResultsPipeline(
     };
   }, [currentPool]);
 
-  // Filter đang chọn không còn trong pool mới → bỏ
+  // Drop selected filters that are no longer in the new pool
   useEffect(() => {
     if (currentPool) {
       updatePrefs(prev => ({
@@ -65,8 +65,8 @@ export function useResultsPipeline(
     return true;
   }, [prefs]);
 
-  // Seen ("hide & don't recommend") ẩn NGAY ở client — pool sâu 500 item nên vẫn đủ lấp chỗ
-  // trống. exclude_ids chỉ đi kèm lần search kế tiếp, khỏi phải round-trip mỗi lần bấm mắt.
+  // Seen ("hide & don't recommend") hides items client-side at once; the 500-deep pool still fills
+  // the gaps. exclude_ids only goes with the next search, so clicking the eye needs no round trip.
   const visible = useCallback(
     (item: AnimeItem) => !watchedSet.has(item.mal_id) && matchFilters(item),
     [watchedSet, matchFilters]

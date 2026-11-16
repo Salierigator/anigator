@@ -1,8 +1,8 @@
-"""GET /api/users/{username}/exists — check nhanh username MAL cho hint valid/invalid trên UI.
+"""GET /api/users/{username}/exists: quick MAL username check for the valid/invalid hint in the UI.
 
-Vì sao backend: Jikan /users/ đang 504 diện rộng (17/07) mà frontend cần câu trả lời chắc;
-MAL v2 cần client id nên phải đi qua server. Volume thấp (debounce phía client) + cache RAM.
-Không xác định được (network/5xx) → 502, frontend im lặng (đừng báo invalid oan).
+Served by the backend because MAL v2 needs the client id, and Jikan's /users/ endpoint is too
+unreliable for a definite answer. Low volume (debounced client-side) + an in-memory cache.
+Undetermined (network/5xx) -> 502, and the frontend stays silent (never a false "invalid").
 """
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException
 
 router = APIRouter()
 
-_cache: dict = {}                      # username đã normalize -> bool (chỉ cache câu trả lời chắc)
+_cache: dict = {}                      # normalized username -> bool (definite answers only)
 
 
 @router.get("/users/{username}/exists")
@@ -19,10 +19,10 @@ def username_exists(username: str) -> dict:
     if key in _cache:
         return {"exists": _cache[key]}
     try:
-        from app.clients.mal_api import user_exists  # lazy: cần MAL_CLIENT_ID
+        from app.clients.mal_api import user_exists  # lazy: needs MAL_CLIENT_ID
         result = user_exists(username.strip())
     except RuntimeError:
-        result = None                                # thiếu MAL_CLIENT_ID
+        result = None                                # MAL_CLIENT_ID missing
     if result is None:
         raise HTTPException(status_code=502, detail="can't verify username")
     if len(_cache) > 1024:

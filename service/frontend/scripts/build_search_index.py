@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
-"""Sinh public/anime-index.json — index search client-side cho guest picker.
+"""Build public/anime-index.json: the client-side search index of the guest picker.
 
-Đọc data/raw/details.jsonl.gz (crawl mới: có title_english + synonyms + poster) và
-artifacts/item_index.parquet (để gắn cờ in_corpus). CHỈ ĐỌC, không đụng artifacts/.
+Reads data/raw/details.jsonl.gz (titles incl. title_english + synonyms, poster) and
+export/item_index.parquet (for the in_corpus flag); read-only on both.
 
-    venv/bin/python service/frontend/scripts/build_search_index.py
-
-Chạy lại mỗi khi re-export artifacts/ — index định nghĩa "cái gì pick được" nên phải
-đi cùng phiên bản model, không phải cùng phiên bản crawl.
+Re-run whenever export/ is re-exported: the index defines what can be picked, so it must follow
+the model version, not the crawl version.
 """
 from __future__ import annotations
 
@@ -19,7 +17,7 @@ import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[3]
 DETAILS = ROOT / "data" / "raw" / "details.jsonl.gz"
-ITEM_INDEX = ROOT / "artifacts" / "item_index.parquet"
+ITEM_INDEX = ROOT / "export" / "item_index.parquet"
 OUT = ROOT / "service" / "frontend" / "public" / "anime-index.json"
 
 POSTER_PREFIX = "https://cdn.myanimelist.net/images/anime/"
@@ -37,8 +35,8 @@ def main() -> None:
                 continue
             seen.add(mal_id)
 
-            # SFW: khớp mask nsfw_idx của backend (genre Hentai / rating Rx) — service
-            # loại chúng khỏi gợi ý nên đừng cho pick.
+            # SFW: matches the backend's nsfw_idx mask (genre Hentai / rating Rx); the service drops
+            # these from the results, so they cannot be picked either.
             genres = {g["name"] for g in (r.get("genres") or []) + (r.get("explicit_genres") or [])}
             if "Hentai" in genres or (r.get("rating") or "").startswith("Rx"):
                 dropped_nsfw += 1
@@ -46,7 +44,7 @@ def main() -> None:
 
             poster = ((r.get("images") or {}).get("jpg") or {}).get("image_url") or ""
             if poster.startswith(POSTER_PREFIX) and poster.endswith(".jpg"):
-                poster = poster[len(POSTER_PREFIX):-4]     # "1223/96541" — client ghép lại
+                poster = poster[len(POSTER_PREFIX):-4]     # "1223/96541", rebuilt by the client
             else:
                 poster = ""
 
@@ -63,14 +61,14 @@ def main() -> None:
                 1 if mal_id in corpus else 0,
             ])
 
-    rows.sort(key=lambda r: -r[7])                          # members desc: nén tốt hơn
+    rows.sort(key=lambda r: -r[7])                          # members desc: compresses better
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps(rows, separators=(",", ":"), ensure_ascii=False), encoding="utf-8")
 
     in_corpus = sum(r[9] for r in rows)
     print(f"{OUT.relative_to(ROOT)}: {len(rows)} anime "
-          f"({in_corpus} in_corpus, {len(rows) - in_corpus} ngoài) "
-          f"| bỏ {dropped_nsfw} nsfw | {OUT.stat().st_size / 1e6:.2f} MB")
+          f"({in_corpus} in_corpus, {len(rows) - in_corpus} outside) "
+          f"| dropped {dropped_nsfw} nsfw | {OUT.stat().st_size / 1e6:.2f} MB")
 
 
 if __name__ == "__main__":

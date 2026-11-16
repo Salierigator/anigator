@@ -24,8 +24,8 @@ export function MultiSelectDropdown({
 }: MultiSelectProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  // Thứ tự option CHỐT lúc mở: đã chọn lên đầu. Tick/bỏ tick khi đang mở không xáo lại list
-  // dưới tay user — lần mở sau mới sắp lại.
+  // Option order is FIXED when the dropdown opens: selected ones first. Ticking while it is open does
+  // not reshuffle the list under the user's cursor; it is re-sorted on the next open.
   const [orderedOptions, setOrderedOptions] = useState<string[]>(options);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -62,7 +62,7 @@ export function MultiSelectDropdown({
 
   useEffect(() => clearCloseTimer, [clearCloseTimer]);
 
-  // Rê chuột ra ngoài → đóng sau 150ms (rê nhầm qua mép thì không mất dropdown ngay)
+  // Mouse leaves -> close after 150 ms (brushing past the edge does not close it at once)
   const handleMouseLeave = () => {
     if (!isOpen) return;
     clearCloseTimer();
@@ -71,7 +71,7 @@ export function MultiSelectDropdown({
 
   const toggleOption = (option: string) => {
     if (single) {
-      // Show Main/Show Cold luôn phải có 1 giá trị; filter 1-lựa-chọn thì bấm lại = bỏ chọn
+      // Show Main/Show Cold must always keep a value; for a single-choice filter, clicking again deselects
       if (!label.startsWith('Show') && selected.includes(option)) {
         onChange([]);
       } else {

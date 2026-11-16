@@ -1,4 +1,4 @@
-"""API contract ở mock mode (MOCK_MODE=1) — không load model. Xem service/API_CONTRACT.md."""
+"""API contract in mock mode (MOCK_MODE=1): no model is loaded."""
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -20,22 +20,15 @@ def test_recommend_mock_shape_and_cut():
     assert len(body["main"]) <= 5
     assert len(body["cold"]) <= 3
     assert body["meta"]["mode"] == "mock"
-    assert {"popularity", "members", "start_date"} <= set(body["main"][0])  # sort + card client-side
+    assert {"popularity", "members", "start_date"} <= set(body["main"][0])  # client-side sort + card
 
 
 def test_recommend_empty_body_is_guest():
-    # không username lẫn mal_ids → guest (history rỗng), KHÔNG còn 422
+    # neither username nor mal_ids -> guest (empty history), not a 422
     with TestClient(app) as client:
         r = client.post("/api/recommend", json={"top_k": 5})
     assert r.status_code == 200
     assert r.json()["main"]
-
-
-def test_recommend_mock_has_map_xy():
-    with TestClient(app) as client:
-        r = client.post("/api/recommend", json={"username": "anyone"})
-    assert r.status_code == 200
-    assert len(r.json()["meta"]["map_xy"]) == 2       # fixture có sẵn [x, y]
 
 
 def test_recommend_exclude_ids():
@@ -98,27 +91,3 @@ def test_username_exists_indeterminate(monkeypatch):
     with TestClient(app) as client:
         r = client.get("/api/users/unknown-state-user/exists")
     assert r.status_code == 502
-
-
-def test_map_mock_shape():
-    with TestClient(app) as client:
-        r = client.get("/api/map")
-    assert r.status_code == 200
-    body = r.json()
-    pts = body["points"]
-    n = len(pts["mal_id"])
-    assert n > 0
-    assert all(len(pts[k]) == n
-               for k in ("title", "x", "y", "label", "popularity", "is_cold"))
-    assert body["clusters"]
-    assert {"label", "name", "size", "examples", "cx", "cy"} <= set(body["clusters"][0])
-    assert len(body["meta"]["extent"]) == 4
-
-
-def test_map_territory_route_wired():
-    # mock mượn map/outputs/service/territory.png nếu repo đã export; clone frontend-only -> 404.
-    with TestClient(app) as client:
-        r = client.get("/api/map/territory.png")
-    assert r.status_code in (200, 404)
-    if r.status_code == 200:
-        assert r.headers["content-type"] == "image/png"

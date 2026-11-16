@@ -1,4 +1,4 @@
-# Backend API deps (model deps: xem root requirements.txt — torch/lightgbm/polars… cho real mode)
+# Backend API deps; real mode also needs the model deps of the root requirements.txt (torch, lightgbm, polars, ...)
 fastapi
 uvicorn[standard]
 pydantic-settings

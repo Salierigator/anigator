@@ -1,14 +1,14 @@
-"""build_eval.py — dựng eval pool val/test/val_cold ĐÚNG protocol retriever (local, re-run
-mỗi khi artifacts đổi).
+"""Build the eval pools (val/test/val_cold) with exactly the retriever's protocol. Re-run whenever
+export/ changes; reads only export/.
 
-Per eval user: U từ support (= history trong users_history, đã trừ query+H) → top-POOL_DEPTH
-cosine với mask = seen − query (KHÔNG mask query — đáp án đang chấm; KHÔNG loại cold — warm
-eval cho cold cạnh tranh y như retriever) → features. Pool lưu sâu 500, eval slice 200/500.
+Per eval user: U from the support (= its users_history list, queries and cold H removed) ->
+top-POOL_DEPTH cosine with mask = seen - queries (queries are not masked: they are the answers
+being scored; cold items are not removed: warm eval lets them compete exactly as in the
+retriever) -> features. Pools are stored 500 deep; eval slices 200 or 500.
 
-Output: model/ranker/train-data/pools/eval_{split}.parquet (qid contiguous, trong group sort cosine desc,
-label binary = cand ∈ query) + eval_{split}_users.parquet (qid, r_total, U, hist_top64).
-
-    venv/bin/python model/ranker/data_prep/build_eval.py [--splits val test val_cold]
+Writes train/ranker/data/pools/eval_{split}.parquet (contiguous qid, each group sorted by cosine
+desc, binary label = candidate in the queries), eval_{split}_users.parquet (qid, user_idx,
+r_total, r_liked, U, hist_top64) and build_meta.json.
 """
 from __future__ import annotations
 
@@ -18,19 +18,14 @@ import time
 from datetime import datetime, timezone
 
 import numpy as np
-import torch  # noqa: F401  (trước lightgbm ở downstream; giữ convention)
+import torch  # noqa: F401  (torch before lightgbm, as everywhere)
 
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))   # lib chung ở ../src
-
-import config  # noqa: E402
-from features import ItemFeatures, build_frame  # noqa: E402
-from pool import (PoolWriter, UsersHistory, account_age_by_user, cross_features,  # noqa: E402
-                  encode_users, load_eval_seen, load_queries, topk_pool,
-                  user_stats_from_support)
-from user_encode import load_user_encoder  # noqa: E402
+from model.ranker import config
+from model.ranker.features import ItemFeatures, build_frame
+from model.ranker.pool import (PoolWriter, UsersHistory, account_age_by_user, cross_features,
+                               encode_users, load_eval_seen, load_queries, topk_pool,
+                               user_stats_from_support)
+from model.ranker.user_encode import load_user_encoder
 
 
 def build_split(split: str, enc, cap: int, itemfeat, V, uh: UsersHistory,
@@ -51,8 +46,8 @@ def build_split(split: str, enc, cap: int, itemfeat, V, uh: UsersHistory,
         labels = np.stack([np.isin(c, queries[u]) for c, u in zip(cand, chunk)]).astype(np.int8)
         stats = user_stats_from_support(
             hist_scores, np.asarray([ages.get(int(u), np.nan) for u in chunk]))
-        # liked = query item có score>=1 & score>u_mean (per-user above-own-mean, mirror retriever);
-        # u_n_rated==0 (không có support rated) -> u_mean vô nghĩa -> không có liked.
+        # liked = query items with score >= 1 and score > the user's mean (as in the retriever);
+        # u_n_rated == 0 (no rated support) makes the mean meaningless, so nothing is liked.
         liked_sets = []
         for i, u in enumerate(chunk):
             if stats["u_n_rated"][i] > 0:
@@ -80,13 +75,13 @@ def main() -> None:
     ap.add_argument("--splits", nargs="+", default=["val", "test", "val_cold"])
     args = ap.parse_args()
     assert "test_cold" not in args.splits or \
-        (config.ARTIFACTS / "eval_queries_test_cold.parquet").exists(), \
-        "test_cold = final exam — cần export.py --final-exam (chấm 1 lần lúc chốt pipeline)"
+        (config.EXPORT / "eval_queries_test_cold.parquet").exists(), \
+        "test_cold is the final exam: it needs the retriever's export --final-exam (scored once, when the pipeline is final)"
 
     enc, meta = load_user_encoder("cpu")
     cap = meta.get("eval_history_cap", 1024)
     V = enc.item_cache.numpy()
-    itemfeat = ItemFeatures.load(config.ARTIFACTS, config.CLEANED)
+    itemfeat = ItemFeatures.load(config.EXPORT)
     uh = UsersHistory()
     seen = load_eval_seen()
     ages = account_age_by_user()
@@ -95,7 +90,7 @@ def main() -> None:
 
     meta_path = config.POOLS / "build_meta.json"
     old = json.loads(meta_path.read_text()) if meta_path.exists() else {}
-    contract = (config.ARTIFACTS / "CONTRACT.md").read_text().splitlines()
+    contract = (config.EXPORT / "CONTRACT.md").read_text().splitlines()
     old.update({
         "pool_depth": config.POOL_DEPTH, "hist_feat_cap": config.HIST_FEAT_CAP,
         "n_users": {**old.get("n_users", {}), **counts},

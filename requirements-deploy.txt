@@ -1,11 +1,11 @@
-# Deps của SERVING path (HF Space, real mode) — KHÔNG phải train/map/notebook.
-# Pin = đúng bản đang chạy local (venv py3.9) → image py3.11 dựng lại được y hệt.
+# Deps of the serving path (the backend in real mode, Docker on Render), not of training.
+# Pinned to the versions of the local venv (Python 3.9), so the Python 3.11 image matches it.
 #
-# torch CỐ TÌNH không nằm ở đây: Dockerfile cài riêng từ index CPU-only. `pip install torch`
-# mặc định trên Linux kéo cả nvidia-* (CUDA) → image phồng ~2.5GB.
+# torch is deliberately missing: the Dockerfile installs it from the CPU-only index, because a plain
+# `pip install torch` on Linux also pulls the nvidia-* (CUDA) packages and bloats the image by gigabytes.
 #
-# Có trong requirements.txt nhưng serve KHÔNG cần: matplotlib seaborn jupyter ipykernel scipy
-# implicit sentence-transformers scikit-learn plotly h5py pytest.
+# In requirements.txt but not needed to serve: matplotlib seaborn scipy implicit
+# sentence-transformers pytest.
 
 fastapi==0.128.8
 uvicorn[standard]==0.39.0

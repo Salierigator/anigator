@@ -1,22 +1,22 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-// Jikan detail cho MODAL (client-side → đẩy gánh nặng fetch synopsis/genres sang browser user,
-// né rate-limit token MAL backend). CHỈ modal dùng (click-triggered, 1 lần/lượt) nên không cần
-// queue: chỉ cache + dedup in-flight + lùi nhẹ khi 429.
-// Số hiển thị (MAL Score) KHÔNG lấy ở đây — modal ghim theo bản MAL v2 của card để khỏi lệch.
+// Jikan details for the MODAL, fetched client-side: the synopsis/genres load moves to the user's
+// browser and off the backend's MAL token rate limit. Only the modal uses it (click-triggered, once
+// per open), so no queue is needed: a cache + in-flight dedup + a short backoff on 429.
+// Displayed numbers (MAL Score) are NOT taken from here: the modal pins them to the card's MAL v2 values.
 const CACHE = new Map<number, any>();
 const inflight = new Map<number, Promise<any | null>>();
 const JIKAN_BASE = 'https://api.jikan.moe/v4';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** Đọc cache đồng bộ (mở lại cùng anime → hiện ngay, khỏi fetch). */
+/** Synchronous cache read (reopening the same anime shows it at once, no fetch). */
 export function getCachedJikanDetail(malId: number): any | undefined {
   return CACHE.get(malId);
 }
 
 /**
- * Object detail đầy đủ của 1 anime từ Jikan. null = lấy không được (network/429/outage) →
- * caller (modal) tự fallback sang backend /api/anime/{id}. Lỗi KHÔNG cache để còn retry.
+ * Full detail object of one anime from Jikan. null = unavailable (network/429/outage), and the
+ * caller (modal) falls back to the backend /api/anime/{id}. Failures are NOT cached, so they can be retried.
  */
 export function fetchJikanDetail(malId: number): Promise<any | null> {
   const cached = CACHE.get(malId);
@@ -30,7 +30,7 @@ export function fetchJikanDetail(malId: number): Promise<any | null> {
       try {
         const res = await fetch(`${JIKAN_BASE}/anime/${malId}`);
         if (res.status === 429) {
-          await sleep(1000); // rate limit Jikan (3 req/s) → đợi rồi thử lại
+          await sleep(1000); // Jikan rate limit (3 req/s): wait, then retry
           continue;
         }
         if (!res.ok) throw new Error(`status ${res.status}`);

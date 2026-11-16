@@ -1,20 +1,17 @@
-"""06 — logQ correction table + final feature_spec.json (v2).
+"""06: logQ correction table + the final feature_spec.json.
 
-logQ: từ TRAIN examples warm (KHÔNG đụng val/test, chống leak). Q(item)=count/total,
-log_q = log(max(count,1)/total) (floor để real item chưa thấy — gồm toàn bộ cold H —
-vẫn finite và vẫn là candidate lúc eval). Dense theo anime_idx 0..N+1; PAD/OOV
-(idx<2) -> log_q=-inf, is_candidate=False.
+logQ comes from the warm train examples only (never val/test, to avoid leaks): Q(item) =
+count/total, log_q = log(max(count, 1)/total). The floor keeps unseen real items, all of H
+included, finite and still candidates at eval. Dense over anime_idx 0..N+1; PAD/OOV
+(idx < 2) -> log_q = -inf, is_candidate = False.
 
-feature_spec.json = merge _spec_item + _spec_user + params từ prep_config (echo labels,
-cold meta, history_store="full", eval_history_cap default, protocol_version="v2").
-Single source of truth để model dựng nn.Embedding + đọc đúng protocol.
+feature_spec.json merges _spec_item + _spec_user + prep_config params (labels echo, cold meta,
+history_store="full", the eval_history_cap default, protocol_version="v2"). It is the single
+source of truth the model builds its nn.Embedding layers and reads the protocol from.
 
-In:  train-data/examples/split={train,val_cold,test_cold}/, train-data/{_spec_item,_spec_user}.json,
-     train-data/user_id_map.parquet
-Out: train-data/logq.parquet (+ logq.npy), train-data/feature_spec.json
-
-Usage:
-    venv/bin/python model/retriever/data_prep/06_logq_and_spec.py
+Reads examples/split={train,val_cold,test_cold}/, {_spec_item,_spec_user}.json and
+user_id_map.parquet; writes logq.parquet (+ logq.npy) and feature_spec.json, all in
+train/retriever/data/.
 """
 import json
 import pathlib
@@ -27,7 +24,7 @@ from prep_config import (
 )
 
 RETRIEVER = pathlib.Path(__file__).parent.parent          # model/retriever/
-OUT = RETRIEVER / "train-data"
+OUT = RETRIEVER.parent.parent / "train" / "retriever" / "data"
 
 
 def main():
@@ -36,7 +33,7 @@ def main():
     num_items = spec_item["num_items"]
     num_users = pl.read_parquet(OUT / "user_id_map.parquet").height
 
-    # --- logQ từ TRAIN examples (warm — H không bao giờ xuất hiện ở đây) ---
+    # --- logQ from the train examples (warm: H never appears here) ---
     cnt = (
         pl.scan_parquet(OUT / "examples" / "split=train" / "*.parquet")
         .group_by("anime_idx")
@@ -64,7 +61,7 @@ def main():
     total_check = float(logq.filter(pl.col("count") > 0).select(pl.col("log_q").exp().sum()).item())
     n_zero_real = logq.filter((pl.col("anime_idx") >= 2) & (pl.col("count") == 0)).height
     print(f"logq: total train positives = {total:,}")
-    print(f"  real items count==0 (floored, gồm {spec_item['cold_items']['n_cold']} cold): {n_zero_real:,}")
+    print(f"  real items count==0 (floored, {spec_item['cold_items']['n_cold']} cold among them): {n_zero_real:,}")
     print(f"  sum(exp(log_q)) over count>0 = {total_check:.8f}  (target 1.0)")
     assert abs(total_check - 1.0) < 1e-6
 

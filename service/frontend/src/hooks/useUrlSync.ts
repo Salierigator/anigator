@@ -24,10 +24,10 @@ interface Params {
 const SORT_KEYS = ['relevance', 'score', 'popularity', 'date'];
 
 /**
- * 2 chiều URL ↔ state:
- * - Mount: đọc localStorage + query params (?u= / ?ids= / ?watched= / ?sort= / ?order=),
- *   khôi phục state và bắn search đầu tiên.
- * - Sau đó: state đổi → replaceState URL tương ứng (share link được).
+ * Two-way URL <-> state sync:
+ * - On mount: read localStorage + query params (?u= / ?ids= / ?watched= / ?sort= / ?order=),
+ *   restore the state and fire the first search.
+ * - Afterwards: a state change -> replaceState to the matching URL (shareable links).
  */
 export function useUrlSync({
   hasInitializedRef,
@@ -139,8 +139,8 @@ export function useUrlSync({
     if (!hasInitializedRef.current) return;
 
     const url = new URL(window.location.href);
-    // Tab nào cũng chỉ giữ param của chính nó; "có pool HOẶC đang load" đều ghi (share link
-    // được ngay khi vừa bấm search, chưa cần đợi kết quả).
+    // Each tab keeps only its own params, written when it has a pool OR a load in flight (the link
+    // is shareable right after clicking search, before the results arrive).
     if (activeTab === 'username') {
       url.searchParams.delete('ids');
       url.searchParams.delete('watched');
@@ -166,7 +166,7 @@ export function useUrlSync({
       }
     }
 
-    // sort=relevance + order=desc là mặc định → bỏ khỏi URL cho gọn
+    // sort=relevance + order=desc are the defaults, so they stay out of the URL
     if (prefs.sortBy !== 'relevance' || prefs.sortAsc) {
       url.searchParams.set('sort', prefs.sortBy);
       url.searchParams.set('order', prefs.sortAsc ? 'asc' : 'desc');

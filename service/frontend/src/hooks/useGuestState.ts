@@ -5,7 +5,7 @@ import type { AnimeItem, SearchResultItem } from '../types';
 export const GUEST_PICKS_KEY = 'anime_guest_picks';
 export const WATCHED_SET_KEY = 'anime_watched_set';
 
-/** Guest picks (Love) + watched set (Seen), persist localStorage sau khi app init xong. */
+/** Guest picks (Love) + watched set (Seen), persisted to localStorage once the app has initialized. */
 export function useGuestState(hasInitializedRef: RefObject<boolean>) {
   const [guestPicks, setGuestPicks] = useState<SearchResultItem[]>([]);
   const [watchedSet, setWatchedSet] = useState<Set<number>>(new Set());

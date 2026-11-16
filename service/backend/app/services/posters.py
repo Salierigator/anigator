@@ -1,10 +1,10 @@
-"""Lấy poster + score/members MỚI từ MAL v2, fetch song song + cache file. TÁCH khỏi path
-/recommend để engine recommend giữ nguyên tốc độ — chỉ cần MAL client id.
+"""Posters plus fresh score/members from MAL v2, fetched in parallel with a file cache. Kept out of
+the /recommend path so recommending stays fast; only needs the MAL client id.
 
-Card frontend dùng batch này để hiển thị số fresh (khớp MAL) thay vì gọi Jikan client-side
-(Jikan 3 req/s + hay 504). Thiếu client id / lỗi fetch -> poster None (frontend fallback Jikan
-qua <img onError>); score/members None -> card dùng snapshot backend.
-Chỉ cache entry lấy được; miss không cache để lần sau thử lại.
+Cards use this batch to show fresh numbers (matching MAL) instead of calling Jikan from the
+browser (3 req/s, frequent 504s). No client id or a failed fetch -> poster None (the frontend
+falls back to Jikan via <img onError>); score/members None -> the card keeps the backend snapshot.
+Only successful entries are cached; a miss is retried next time.
 """
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from typing import Dict, List, Optional
 CACHE_PATH = Path(__file__).resolve().parents[2] / "cache" / "posters.json"
 _LOCK = Lock()
 
-# Fields MAL v2 cần cho card: ảnh + điểm + số members.
+# MAL v2 fields a card needs: picture, score, member count.
 _FIELDS = "main_picture,mean,num_list_users"
 
 
@@ -27,7 +27,7 @@ def _load_cache() -> Dict[int, dict]:
             raw = json.loads(CACHE_PATH.read_text())
         except (json.JSONDecodeError, ValueError, OSError):
             return {}
-        # Chỉ nhận entry format mới (dict). Format cũ (str url) bị bỏ → refetch kèm score/members.
+        # Only dict entries are valid; anything else (e.g. a bare URL string) is dropped and refetched.
         return {int(k): v for k, v in raw.items() if isinstance(v, dict)}
     return {}
 
@@ -52,9 +52,9 @@ def fetch_posters(ids: List[int]) -> Dict[int, dict]:
 
     if missing:
         try:
-            from app.clients.mal_api import get_anime_metadata  # lazy: cần MAL_CLIENT_ID
+            from app.clients.mal_api import get_anime_metadata  # lazy: needs MAL_CLIENT_ID
         except RuntimeError:
-            get_anime_metadata = None  # không có MAL_CLIENT_ID -> để frontend fallback
+            get_anime_metadata = None  # no MAL_CLIENT_ID: the frontend falls back
 
         if get_anime_metadata is not None:
             def one(mal_id: int) -> Optional[dict]:

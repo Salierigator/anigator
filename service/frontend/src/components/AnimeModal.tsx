@@ -6,8 +6,8 @@ import { fetchJikanDetail, getCachedJikanDetail } from '../utils/jikanDetail';
 import { fetchAnimeDetailAPI } from '../api';
 import type { AnimeItem, PosterEntry } from '../types';
 
-// Jikan JSON -> shape "enrich" modal cần. (Backend /api/anime đã trả sẵn các field này nên chỉ
-// cần normalize Jikan.) KHÔNG lấy score ở đây — score ghim theo bản MAL v2 của card.
+// Jikan JSON -> the "enrich" shape the modal needs (the backend /api/anime already returns these
+// fields, so only Jikan needs normalizing). The score is NOT taken here: it is pinned to the card's MAL v2 value.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function normalizeJikan(d: any) {
   const tags = [
@@ -34,7 +34,7 @@ function normalizeJikan(d: any) {
 
 interface AnimeModalProps {
   anime: AnimeItem | null;
-  entry?: PosterEntry;   // poster + score/members MAL v2 (từ card) — ghim số cho khớp card
+  entry?: PosterEntry;   // MAL v2 poster + score/members from the card, pinned so the numbers match it
   isOpen: boolean;
   onClose: () => void;
 }
@@ -42,8 +42,9 @@ interface AnimeModalProps {
 export function AnimeModal({ anime, entry, isOpen, onClose }: AnimeModalProps) {
   const malId = anime?.mal_id ?? null;
 
-  // enrich = phần NẶNG, lấy async: synopsis/genres/episodes/status/rank/studio/title_english.
-  // Nguồn: Jikan CLIENT-SIDE (đẩy tải khỏi token backend) → fallback backend /api/anime nếu Jikan lỗi.
+  // enrich = the HEAVY part, fetched async: synopsis/genres/episodes/status/rank/studio/title_english.
+  // Source: Jikan CLIENT-SIDE (keeps the load off the backend token), falling back to the backend
+  // /api/anime when Jikan fails.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [enrich, setEnrich] = useState<any | null>(null);
   const [enriching, setEnriching] = useState<boolean>(false);
@@ -58,7 +59,7 @@ export function AnimeModal({ anime, entry, isOpen, onClose }: AnimeModalProps) {
       return;
     }
 
-    // Mở lại cùng anime đã fetch → hiện ngay, khỏi gọi Jikan.
+    // Reopening an anime already fetched shows it at once, without calling Jikan.
     const cached = getCachedJikanDetail(malId);
     if (cached) {
       setEnrich(normalizeJikan(cached));
@@ -85,7 +86,7 @@ export function AnimeModal({ anime, entry, isOpen, onClose }: AnimeModalProps) {
       .then((jk) => {
         if (!alive) return;
         if (jk) { setEnrich(normalizeJikan(jk)); setEnriching(false); }
-        else backendFallback();                     // Jikan 504/429/outage → backend MAL v2
+        else backendFallback();                     // Jikan 504/429/outage -> backend MAL v2
       })
       .catch(() => { if (alive) backendFallback(); });
 
@@ -111,9 +112,9 @@ export function AnimeModal({ anime, entry, isOpen, onClose }: AnimeModalProps) {
     }
   };
 
-  // ---- SEED (hiện NGAY, từ card): số + poster ghim theo MAL v2 để KHỚP card, không lệch.
-  const seedScore = entry?.score ?? anime.mal_score ?? null;         // MAL Score — cùng nguồn card
-  const seedPoster = entry?.poster ?? null;                          // poster MAL v2 (card đã load)
+  // ---- SEED (shown AT ONCE, from the card): numbers + poster pinned to MAL v2 so they MATCH the card.
+  const seedScore = entry?.score ?? anime.mal_score ?? null;         // MAL Score, same source as the card
+  const seedPoster = entry?.poster ?? null;                          // MAL v2 poster (already loaded by the card)
   const seedType = anime.type && anime.type !== '?' ? anime.type : null;
 
   const imageUrl = seedPoster ?? enrich?.image_url ?? null;
@@ -148,7 +149,7 @@ export function AnimeModal({ anime, entry, isOpen, onClose }: AnimeModalProps) {
           <X className="w-5 h-5" />
         </button>
 
-        {/* Left: Poster (seed — hiện ngay từ card) */}
+        {/* Left: Poster (seed, shown at once from the card) */}
         <div className="md:w-1/3 bg-gray-100 flex-shrink-0 hidden md:flex items-center justify-center overflow-hidden relative">
           {imageUrl ? (
             <>
@@ -240,7 +241,7 @@ export function AnimeModal({ anime, entry, isOpen, onClose }: AnimeModalProps) {
               </div>
             )}
 
-            {/* Đang lấy phần nặng (Jikan → backend) */}
+            {/* Fetching the heavy part (Jikan -> backend) */}
             {bodyPending && (
               <div className="flex items-center gap-3 text-gray-400 text-sm py-2">
                 <div className="h-4 w-4 rounded-full border-2 border-gray-200 border-t-gray-500 animate-spin"></div>
@@ -248,7 +249,7 @@ export function AnimeModal({ anime, entry, isOpen, onClose }: AnimeModalProps) {
               </div>
             )}
 
-            {/* Cả Jikan lẫn backend fail — vẫn giữ seed (poster/title/score) ở trên, chỉ báo phần nặng lỗi */}
+            {/* Both Jikan and the backend failed: keep the seed (poster/title/score) above, report only the heavy part */}
             {enrichError && !enrich && (
               <div className="flex items-center gap-3 text-sm text-gray-500 py-2">
                 <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0" />

@@ -1,21 +1,19 @@
-"""build_train.py — dataset train ranker từ TRAIN users (local, re-run khi artifacts đổi).
+"""Build the ranker training dataset from TRAIN users. Re-run whenever export/ changes; reads
+only export/.
 
-Per train user (sample N_TRAIN_USERS, n_pos ≥ MIN_POS_TRAIN, RNG per-user deterministic):
-  1. split positives support 80% / target 20% (tie random — CÙNG cơ chế support/query của
-     protocol eval → train khớp eval khớp serve).
-  2. U từ support → candidates = top-K_POOL cosine, mask = support ∪ hard_neg ∪ cold
-     (target vẫn retrievable — mirror seen−query; cold loại vì train user không bao giờ
-     có positive cold H → giữ lại = dạy model dìm cold).
-     KHÔNG inject target, KHÔNG random-neg — đúng phân phối serve.
-  3. label = grade(score) nếu cand ∈ target (10→4, 9→3, 7-8→2, 0/5/6→1), còn lại 0.
-     Drop group không dính positive nào (không có signal lambdarank).
+Per train user (N_TRAIN_USERS sampled among n_pos >= MIN_POS_TRAIN; per-user deterministic RNG):
+  1. split the positives into support 80% / target 20% (random ties: the same mechanism as the
+     eval protocol's support/query split, so train matches eval matches serve).
+  2. U from the support -> candidates = top-K_POOL cosine with mask = support + hard negatives +
+     cold items (targets stay retrievable, mirroring seen - queries; cold items are removed since
+     a train user never has a cold H positive, so keeping them would teach the model to bury
+     cold). No injected targets, no random negatives: the serving distribution.
+  3. label = grade(score) if the candidate is a target (10->4, 9->3, 7-8->2, 0/5/6->1), else 0.
+     Groups without any positive are dropped (no lambdarank signal).
 
-Valid cho early-stopping = pools/eval_val.parquet (label binary) — KHÔNG build riêng.
+Early-stopping validation reuses pools/eval_val.parquet (binary labels); nothing separate is built.
 
-Output: model/ranker/train-data/datasets/train.parquet + train_users.parquet + build_meta.json
-        (+ in danh sách file cần upload Drive cho Colab).
-
-    venv/bin/python model/ranker/data_prep/build_train.py [--n-users 100000] [--smoke]
+Writes train/ranker/data/datasets/train.parquet, train_users.parquet and build_meta.json.
 """
 from __future__ import annotations
 
@@ -29,20 +27,16 @@ import numpy as np
 import polars as pl
 import torch  # noqa: F401
 
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))   # lib chung ở ../src
-
-import config  # noqa: E402
-from features import ItemFeatures, build_frame  # noqa: E402
-from pool import (PoolWriter, UsersHistory, account_age_by_user, cross_features,  # noqa: E402
-                  encode_users, topk_pool, user_stats_from_support)
-from user_encode import load_user_encoder  # noqa: E402
+from model import paths
+from model.ranker import config
+from model.ranker.features import ItemFeatures, build_frame
+from model.ranker.pool import (PoolWriter, UsersHistory, account_age_by_user, cross_features,
+                               encode_users, topk_pool, user_stats_from_support)
+from model.ranker.user_encode import load_user_encoder
 
 
 def select_train_users(uh: UsersHistory, n_users: int) -> np.ndarray:
-    split = pl.read_parquet(config.ARTIFACTS / "user_split.parquet")
+    split = pl.read_parquet(config.EXPORT / "user_split.parquet")
     train_ids = split.filter(pl.col("split") == "train")["user_idx"].to_numpy()
     eligible = train_ids[uh.history_lens()[train_ids] >= config.MIN_POS_TRAIN]
     rng = np.random.default_rng(config.SEED)
@@ -51,8 +45,9 @@ def select_train_users(uh: UsersHistory, n_users: int) -> np.ndarray:
 
 
 def split_support_target(ids: np.ndarray, scores: np.ndarray, u: int):
-    """Tie random per-user (deterministic theo (SEED, user_idx)) → 20% target, còn lại support
-    (giữ nguyên thứ tự gốc = vẫn sort score desc)."""
+    """Random ties per user (deterministic in (SEED, user_idx)) -> TARGET_FRAC targets, the rest
+    support, both in the original order (still sorted by score desc). Returns (support ids,
+    support scores, target ids, target scores)."""
     rng = np.random.default_rng([config.SEED, int(u)])
     tie = rng.random(len(ids))
     n_target = int(np.clip(round(config.TARGET_FRAC * len(ids)), 1, len(ids) - 1))
@@ -62,9 +57,9 @@ def split_support_target(ids: np.ndarray, scores: np.ndarray, u: int):
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="Build train dataset cho ranker")
+    ap = argparse.ArgumentParser(description="Build the ranker training dataset")
     ap.add_argument("--n-users", type=int, default=config.N_TRAIN_USERS)
-    ap.add_argument("--smoke", action="store_true", help="2k user (kiểm tra end-to-end)")
+    ap.add_argument("--smoke", action="store_true", help="2k users (end-to-end check)")
     args = ap.parse_args()
     n_users = 2_000 if args.smoke else args.n_users
     t0 = time.time()
@@ -72,12 +67,12 @@ def main() -> None:
     enc, meta = load_user_encoder("cpu")
     cap = meta.get("eval_history_cap", 1024)
     V = enc.item_cache.numpy()
-    itemfeat = ItemFeatures.load(config.ARTIFACTS, config.CLEANED)
+    itemfeat = ItemFeatures.load(config.EXPORT)
     cold_idx = np.flatnonzero(itemfeat.is_cold)
     uh = UsersHistory()
     ages = account_age_by_user()
     uids = select_train_users(uh, n_users)
-    print(f"train users: {len(uids):,} (n_pos≥{config.MIN_POS_TRAIN}, seed {config.SEED})")
+    print(f"train users: {len(uids):,} (n_pos>={config.MIN_POS_TRAIN}, seed {config.SEED})")
 
     writer = PoolWriter(config.DATASETS / "train.parquet",
                         config.DATASETS / "train_users.parquet")
@@ -92,7 +87,7 @@ def main() -> None:
             supp_ids.append(si)
             supp_sc.append(ss)
             tgt_maps.append(dict(zip(ti.tolist(), config.grade(ts).tolist())))
-            tgt_score_maps.append(dict(zip(ti.tolist(), ts.tolist())))   # raw score (cho relabel)
+            tgt_score_maps.append(dict(zip(ti.tolist(), ts.tolist())))   # raw score, for train_lgbm --relabel
             mask_lists.append(np.union1d(si, uh.hard_neg(int(u))).astype(np.int64))
             r_total.append(len(ti))
         U = encode_users(enc, supp_ids, supp_sc,
@@ -127,9 +122,9 @@ def main() -> None:
         "grade_map": config.GRADE_MAP, "seed": config.SEED,
         "git_rev": subprocess.run(["git", "rev-parse", "--short", "HEAD"],
                                   capture_output=True, text=True,
-                                  cwd=config.ROOT).stdout.strip(),
+                                  cwd=paths.ROOT).stdout.strip(),
         "source_checkpoint": next(
-            (l.strip("- ") for l in (config.ARTIFACTS / "CONTRACT.md").read_text().splitlines()
+            (l.strip("- ") for l in (config.EXPORT / "CONTRACT.md").read_text().splitlines()
              if "Source checkpoint" in l), "?"),
         "generated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
@@ -137,12 +132,6 @@ def main() -> None:
     print(f"\n[done] {n_kept:,} groups ({rows / 1e6:.1f}M rows), "
           f"drop {bmeta['drop_rate_no_pos']:.1%}, pos_rate {bmeta['pos_rate']:.4f}, "
           f"grades {bmeta['grade_hist']}  ({time.time() - t0:.0f}s)")
-    print("\nUpload Drive (DRIVE/ranker_data/) cho model/ranker/train.ipynb:")
-    for f in ["datasets/train.parquet", "datasets/train_users.parquet",
-              "datasets/build_meta.json", "pools/eval_val.parquet",
-              "pools/eval_val_users.parquet"]:
-        print(f"  - model/ranker/train-data/{f}")
-    print("  - artifacts/item_vectors.npy")
 
 
 if __name__ == "__main__":

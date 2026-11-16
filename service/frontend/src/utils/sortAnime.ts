@@ -1,11 +1,11 @@
 import type { AnimeItem, SortKey } from '../types';
 
-// Sort client-side thuần — 'relevance' = giữ thứ tự mảng từ backend (đảo khi desc), null xuống cuối.
+// Client-side sort. 'relevance' keeps the backend order (reversed for asc); nulls go last.
 export function sortAnimeItems(items: AnimeItem[], sortBy: SortKey, isAsc: boolean): AnimeItem[] {
   const sorted = [...items];
 
   if (sortBy === 'relevance') {
-    // desc (mũi tên xuống, mặc định) = giữ thứ tự backend (liên quan nhất trước); asc = đảo.
+    // desc (down arrow, the default) = backend order (most relevant first); asc = reversed.
     if (isAsc) {
       sorted.reverse();
     }
@@ -38,7 +38,7 @@ export function sortAnimeItems(items: AnimeItem[], sortBy: SortKey, isAsc: boole
       const cmp = (valA as string).localeCompare(valB as string);
       return isAsc ? cmp : -cmp;
     } else if (sortBy === 'popularity') {
-      // popularity là rank (1 = phổ biến nhất) → đảo so với score: desc (xuống) = phổ biến nhất trước.
+      // popularity is a rank (1 = most popular), inverted relative to score: desc = most popular first.
       return isAsc ? (valB as number) - (valA as number) : (valA as number) - (valB as number);
     } else {
       return isAsc ? (valA as number) - (valB as number) : (valB as number) - (valA as number);

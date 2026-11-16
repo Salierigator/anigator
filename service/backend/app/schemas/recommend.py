@@ -1,8 +1,8 @@
-"""Pydantic schemas — hợp đồng I/O của API. Shape khớp `service/API_CONTRACT.md`.
+"""Pydantic schemas: the I/O contract of POST /api/recommend.
 
-`AnimeItem` khớp `Recommender._row` (service/backend/recommend.py) + thêm `image_url` (TODO:
-poster qua Jikan, slot cho frontend — backend hiện CHƯA điền).
-(Dùng typing.Optional/List vì venv chạy Python 3.9 — pydantic không eval được cú pháp `X | None`.)
+AnimeItem matches Recommender._row (model/recommender.py) plus image_url, which the backend
+never fills (cards load posters through /api/posters).
+typing.Optional/List because the venv runs Python 3.9: pydantic cannot evaluate `X | None` there.
 """
 from typing import List, Optional
 
@@ -15,15 +15,15 @@ class AnimeItem(BaseModel):
     type: str
     year: Optional[int] = None
     mal_score: Optional[float] = None
-    popularity: Optional[int] = None   # rank độ phổ biến MAL (NHỎ = phổ biến) — sort client-side
-    members: Optional[int] = None      # số user MAL có anime trong list — hiện trên card
-    start_date: Optional[str] = None   # "YYYY-MM-DD" — sort theo ngày ra mắt client-side
-    pred: Optional[float] = None       # điểm ranker (chỉ có ở list "main")
-    cos: Optional[float] = None        # cosine retriever
-    genres: List[str] = Field(default_factory=list)    # cho filter client-side
+    popularity: Optional[int] = None   # MAL popularity rank (smaller = more popular), sorted client-side
+    members: Optional[int] = None      # MAL users with the anime on their list, shown on the card
+    start_date: Optional[str] = None   # "YYYY-MM-DD", for the client-side release-date sort
+    pred: Optional[float] = None       # ranker score (main list only)
+    cos: Optional[float] = None        # retriever cosine
+    genres: List[str] = Field(default_factory=list)    # for client-side filters
     themes: List[str] = Field(default_factory=list)
     studios: List[str] = Field(default_factory=list)
-    image_url: Optional[str] = None    # TODO: poster (Jikan) — chưa điền
+    image_url: Optional[str] = None    # always null (see module docstring)
 
 
 class RecommendRequest(BaseModel):
@@ -31,28 +31,27 @@ class RecommendRequest(BaseModel):
     mal_ids: Optional[List[int]] = None
     top_k: int = Field(default=20, ge=1, le=500)
     cold_k: int = Field(default=10, ge=0, le=500)
-    live: bool = False                 # ép fetch MAL dù username có trong dataset
-    anchor_mal_id: Optional[int] = None  # "tìm anime giống mal_id này" (giữ cá nhân hoá user)
-    sfw: bool = True                   # loại hentai khỏi gợi ý (mặc định bật — an toàn demo)
+    live: bool = False                 # ignored: a username is always fetched live
+    anchor_mal_id: Optional[int] = None  # "more like this mal_id", still personalized for the user
+    sfw: bool = True                   # drop hentai from the results (on by default)
     exclude_ids: Optional[List[int]] = Field(default=None, max_length=1000)
-    # mal_id user đánh dấu "đã xem" trên UI → union vào seen-mask (loại khỏi recs,
-    # KHÔNG phải tín hiệu thích — thích thì đưa vào mal_ids)
-    # KHÔNG có cả username lẫn mal_ids → guest: history rỗng (UserTower h_empty)
-    # → gợi ý generic thiên phổ biến, meta.source="guest"
+    # exclude_ids: mal_ids marked "seen" in the UI, added to the seen mask (removed from the
+    # results; not a like signal: likes go in mal_ids).
+    # Neither username nor mal_ids -> guest: empty history (UserTower h_empty) -> generic,
+    # popularity-leaning results, meta.source = "guest".
 
 
 class RecommendMeta(BaseModel):
-    source: str                        # dataset | live | mal_ids | mock
-    split: str = "-"                   # train/val/test (dataset) hoặc "-"
-    history_count: int = 0             # số positive đưa vào model (map được vào corpus)
-    total_entries: Optional[int] = None  # tổng entries trên list user (len animelist) — cho UI
-    alpha: Optional[float] = None      # blend α của ranker
+    source: str                        # live | mal_ids | guest | mock
+    split: str = "-"                   # train/val/test for dataset users, else "-"
+    history_count: int = 0             # positives fed to the model (those mapped to the corpus)
+    total_entries: Optional[int] = None  # entries on the user's list (len of the animelist), for the UI
+    alpha: Optional[float] = None      # ranker blend alpha
     k_retrieve: Optional[int] = None
     mode: str                          # mock | live
-    map_xy: Optional[List[float]] = None  # [x,y] "you are here" trên GET /api/map (None = map tắt)
 
 
 class RecommendResponse(BaseModel):
-    main: List[AnimeItem]              # gợi ý chính (rerank LightGBM)
-    cold: List[AnimeItem]              # anime mới (cold, theo cosine)
+    main: List[AnimeItem]              # main list (LightGBM rerank)
+    cold: List[AnimeItem]              # new anime (cold items, by cosine)
     meta: RecommendMeta

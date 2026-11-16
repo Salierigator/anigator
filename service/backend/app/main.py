@@ -1,8 +1,8 @@
-"""FastAPI app — entrypoint. Chạy: `uvicorn app.main:app --reload` (CWD = service/backend).
+"""FastAPI app entry point. Run from service/backend: `uvicorn app.main:app --reload`.
 
-Lifespan tạo service 1 lần:
-  - mock_mode (mặc định): MockService đọc fixtures, KHÔNG load model.
-  - real mode (MOCK_MODE=0): RealService load Recommender (wiring build sau).
+The lifespan builds the service once:
+  - mock mode (default): MockService serves the fixtures, no model is loaded.
+  - real mode (MOCK_MODE=0): RealService loads the Recommender.
 """
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    app.add_middleware(GZipMiddleware, minimum_size=1024)   # GET /api/map ~1.3MB -> ~350KB
+    app.add_middleware(GZipMiddleware, minimum_size=1024)
 
     app.include_router(api_router, prefix="/api")
     return app

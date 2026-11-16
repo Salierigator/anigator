@@ -1,9 +1,9 @@
-"""Chi tiết 1 anime cho modal frontend — MAL v2 + cache file (pattern giống posters.py).
+"""Details of one anime for the frontend modal: MAL v2 + a file cache (same pattern as posters.py).
 
-Vì sao backend proxy thay vì frontend gọi Jikan: Jikan 3 req/s per-IP, modal từng xếp hàng
-chung queue với fallback poster của hàng trăm card → kẹt "Loading details...". MAL v2 với
-client id không có limit gắt đó; details bất biến gần đúng → cache trả tức thì từ lần 2.
-Chỉ cache lần lấy được; fail không cache để lần sau thử lại.
+Proxied by the backend rather than fetched from Jikan by the browser: Jikan allows 3 req/s per IP
+and the modal would queue behind the poster fallbacks of hundreds of cards. MAL v2 with a client
+id has no such tight limit, and details barely change, so the cache answers instantly from the
+second call. Only successful fetches are cached, so a failure is retried next time.
 """
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ _MEDIA_TYPE = {"tv": "TV", "movie": "Movie", "ova": "OVA", "ona": "ONA",
 
 
 def media_label(media: Optional[str]) -> Optional[str]:
-    """MAL v2 media_type -> nhãn hiển thị (dùng chung details + search)."""
+    """MAL v2 media_type -> display label (shared by details and search)."""
     return _MEDIA_TYPE.get(media, media.upper() if media else None)
 
 
@@ -40,7 +40,7 @@ def _load_cache() -> Dict[int, dict]:
 
 
 def _map_node(data: dict) -> dict:
-    """JSON MAL v2 -> shape AnimeDetails (schemas/anime.py)."""
+    """MAL v2 JSON -> the AnimeDetails shape (schemas/anime.py)."""
     pic = data.get("main_picture") or {}
     season = data.get("start_season") or {}
     start_date = data.get("start_date") or ""
@@ -71,10 +71,10 @@ def fetch_details(mal_id: int) -> Optional[dict]:
         return cache[mal_id]
 
     try:
-        from app.clients.mal_api import get_anime_metadata  # lazy: cần MAL_CLIENT_ID
+        from app.clients.mal_api import get_anime_metadata  # lazy: needs MAL_CLIENT_ID
         data = get_anime_metadata(mal_id, fields=DETAIL_FIELDS)
     except RuntimeError:
-        return None                                         # thiếu MAL_CLIENT_ID
+        return None                                         # MAL_CLIENT_ID missing
     if not data:
         return None
 

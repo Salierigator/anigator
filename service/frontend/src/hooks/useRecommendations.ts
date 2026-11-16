@@ -14,7 +14,7 @@ interface Params {
   watchedSet: Set<number>;
 }
 
-/** Pool kết quả theo tab + loading/error + handleSearch (dedupe, abort request cũ). */
+/** Result pools per tab + loading/error + handleSearch (dedupes, aborts the previous request). */
 export function useRecommendations({ watchedSet }: Params) {
   const [loadingStates, setLoadingStates] = useState<Record<Tab, boolean>>({
     username: false,
@@ -74,7 +74,7 @@ export function useRecommendations({ watchedSet }: Params) {
     setLoadingStates(prev => ({ ...prev, [searchTab]: true }));
     setError(null);
 
-    // Xoá pool cũ nếu là search username mới, hoặc tab chưa có pool nào
+    // Clear the old pool for a new username search, or when the tab has no pool yet
     if (searchTab === 'username' || !tabPools[searchTab]) {
       setTabPools(prev => ({ ...prev, [searchTab]: null }));
     }
@@ -115,7 +115,7 @@ export function useRecommendations({ watchedSet }: Params) {
       if (axiosErr.name === 'CanceledError' || axiosErr.name === 'AbortError') {
         return;
       }
-      // Lỗi thật → xoá dedupe ref để user retry được cùng params
+      // A real error: clear the dedupe ref so the user can retry with the same params
       lastSearchedParamsRef.current = null;
       if (axiosErr.response?.data?.detail) {
         setError(typeof axiosErr.response.data.detail === 'string'
@@ -131,7 +131,7 @@ export function useRecommendations({ watchedSet }: Params) {
     }
   };
 
-  /** Force dừng search đang chạy (backend treo/lỗi) → mở khoá form ngay. */
+  /** Force-stop the running search (backend stuck or failing) and unlock the form at once. */
   const cancelSearch = (tab: Tab) => {
     if (searchAbortControllerRef.current) {
       searchAbortControllerRef.current.abort();
@@ -140,10 +140,10 @@ export function useRecommendations({ watchedSet }: Params) {
     setLoadingStates(prev => ({ ...prev, [tab]: false }));
   };
 
-  // Loading >8s → bật thêm dòng "server is waking up" (backend free-tier spin down)
+  // Loading > 8 s: also show "server is waking up" (the free-tier backend spins down when idle)
   useEffect(() => {
     if (!loadingStates.username) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- hết loading thì tắt cờ
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- clear the flag once loading ends
       setSlowLoadingStates(prev => ({ ...prev, username: false }));
       return;
     }
@@ -155,7 +155,7 @@ export function useRecommendations({ watchedSet }: Params) {
 
   useEffect(() => {
     if (!loadingStates.guest) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- hết loading thì tắt cờ
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- clear the flag once loading ends
       setSlowLoadingStates(prev => ({ ...prev, guest: false }));
       return;
     }

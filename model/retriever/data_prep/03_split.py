@@ -1,15 +1,11 @@
-"""03 — Cold-by-user split (90/5/5) + user_idx re-index.
+"""03: cold-user split (90/5/5) + user_idx re-index.
 
-Hold out trọn user. Eval (val/test) chỉ nhận user có n_pos >= 11 (đủ chia
-support/query ở script 05); user 1..10 positive luôn về train. Drop n_pos==0.
-Split tất định bằng stable-hash(username, SEED) (reproducible, không RNG).
+Whole users are held out. Eval (val/test) takes only users with n_pos >= 11, enough for the
+support/query split of 05; users with 1..10 positives always go to train, users with none
+are dropped. The split is a stable hash of (username, SEED): reproducible, no RNG.
 
-In:  train-data/_user_stats.parquet
-Out: train-data/_user_split.parquet (username, user_idx, split, n_pos, n_hardneg),
-     train-data/user_id_map.parquet (username, user_idx)
-
-Usage:
-    venv/bin/python model/retriever/data_prep/03_split.py
+Reads _user_stats.parquet; writes _user_split.parquet (username, user_idx, split, n_pos,
+n_hardneg) and user_id_map.parquet (username, user_idx), all in train/retriever/data/.
 """
 import pathlib
 
@@ -18,7 +14,7 @@ import polars as pl
 from prep_config import EVAL_MIN_POS, SEED
 
 RETRIEVER = pathlib.Path(__file__).parent.parent          # model/retriever/
-OUT = RETRIEVER / "train-data"
+OUT = RETRIEVER.parent.parent / "train" / "retriever" / "data"
 
 
 def main():
@@ -48,10 +44,10 @@ def main():
     for s in ["train", "val", "test"]:
         c = kept.filter(pl.col("split") == s).height
         print(f"  {s:<6} {c:>9,}  ({c / n * 100:5.2f}%)")
-    # assert: mọi eval user >= EVAL_MIN_POS
+    # every eval user has >= EVAL_MIN_POS positives
     bad = kept.filter((pl.col("split") != "train") & (pl.col("n_pos") < EVAL_MIN_POS)).height
-    assert bad == 0, f"{bad} eval users có n_pos < {EVAL_MIN_POS}"
-    print(f"  eval-eligibility OK (mọi val/test user >= {EVAL_MIN_POS} positive)")
+    assert bad == 0, f"{bad} eval users have n_pos < {EVAL_MIN_POS}"
+    print(f"  eval-eligibility OK (every val/test user has >= {EVAL_MIN_POS} positives)")
     print("DONE 03.")
 
 

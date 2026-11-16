@@ -1,7 +1,7 @@
-"""POST /api/posters — {ids:[...]} -> {posters: {mal_id: url|null}}.
+"""POST /api/posters: {ids: [...]} -> {posters: {mal_id: {poster, score, members}}}.
 
-Tách khỏi /recommend để engine recommend giữ tốc độ. Backend fetch MAL v2 (song song +
-cache); frontend fallback Jikan khi miss. Xem service/API_CONTRACT.md.
+Kept apart from /recommend so recommending stays fast. The backend fetches MAL v2 (in parallel,
+cached); the frontend falls back to Jikan on a miss.
 """
 from __future__ import annotations
 

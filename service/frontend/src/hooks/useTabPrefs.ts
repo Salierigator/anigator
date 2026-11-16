@@ -16,14 +16,14 @@ const DEFAULT_PREFS: TabPrefs = {
   sortAsc: false,
 };
 
-/** Gom toàn bộ filter/sort/số hiển thị theo tab vào 1 object mỗi tab. */
+/** All filter/sort/display-count settings, one object per tab. */
 export function useTabPrefs(activeTab: Tab) {
   const [prefsByTab, setPrefsByTab] = useState<Record<Tab, TabPrefs>>({
     username: DEFAULT_PREFS,
     guest: DEFAULT_PREFS,
   });
 
-  // Patch prefs của tab đang mở — nhận object hoặc updater (đọc prev, tránh stale).
+  // Patch the active tab's prefs: takes an object or an updater (reads prev, avoids stale state).
   const updatePrefs = useCallback<UpdatePrefs>((patch) => {
     setPrefsByTab(prev => {
       const cur = prev[activeTab];
@@ -32,7 +32,7 @@ export function useTabPrefs(activeTab: Tab) {
     });
   }, [activeTab]);
 
-  // Patch prefs của 1 tab chỉ định (dùng khi khôi phục sort từ URL lúc mount).
+  // Patch a given tab's prefs (used to restore the sort from the URL on mount).
   const updateTabPrefs = useCallback((tab: Tab, patch: Partial<TabPrefs>) => {
     setPrefsByTab(prev => ({ ...prev, [tab]: { ...prev[tab], ...patch } }));
   }, []);

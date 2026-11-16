@@ -13,17 +13,20 @@ npm run lint
 
 Backend base URL comes from `VITE_API_URL` (default `http://localhost:8000`). The API it calls is documented in [`../backend/`](../backend/) — live request/response shapes are in the backend's Swagger UI at `/docs`.
 
+The guest picker searches `public/anime-index.json` in the browser, so it needs no backend. `scripts/build_search_index.py` rebuilds that index from the crawl and the model's catalog; rerun it whenever the model is re-exported.
+
 ## Source layout
 
 ```
 src/
-├── main.tsx / index.css / App.css   # entry + Tailwind theme tokens
+├── main.tsx / index.css   # entry + Tailwind theme tokens
 ├── App.tsx                # wiring: hooks + page layout (header, results, modal)
 ├── api.ts                 # axios client, one function per endpoint
 ├── types.ts               # API shapes + UI state types (Tab, TabPrefs, FacetOptions)
 ├── components/
 │   ├── SearchForm.tsx           # tabs (username/guest), inputs, guest picker
-│   ├── FilterPanel.tsx          # filter/sort/show-K panel, sticky + compact on scroll
+│   ├── FilterPanel.tsx          # filter/sort/show-K panel
+│   ├── ActiveFilterChips.tsx    # removable chips for the active filters
 │   ├── MultiSelectDropdown.tsx  # generic dropdown used by FilterPanel
 │   ├── ResultsSection.tsx       # one results grid (rendered twice: Main and Cold)
 │   ├── AnimeCard.tsx            # card + poster loading/fallback
@@ -36,5 +39,6 @@ src/
 │   └── useUrlSync.ts            # URL ?u=/?ids=/?watched=/?sort= ↔ state (share links)
 └── utils/
     ├── sortAnime.ts             # client-side sort (relevance/score/popularity/date)
+    ├── animeIndex.ts            # guest-picker search over public/anime-index.json (MiniSearch)
     └── jikanDetail.ts           # client-side Jikan fetch for the modal (cached, backend fallback)
 ```

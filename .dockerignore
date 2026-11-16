@@ -4,26 +4,30 @@
 
 # Python
 **/__pycache__/
-**/.ipynb_checkpoints/
 .pytest_cache/
 
 # venv
 venv/
 
 # OS
-.DS_Store
+**/.DS_Store
+
+# Docs, notes and local tooling
+**/*.md
+.claude/
+lab/
+images/
 
 # Data + artifacts (pulled from HF)
-artifacts/
+export/
 data/
-legacy/
 
-# Train outputs + notebooks (any depth)
-**/train-data/
-**/checkpoints/
-**/models/
-**/runs/
-**/*.ipynb
+# Data pipeline code (not part of the backend image)
+crawler/
+cleaning/
+
+# Train outputs
+train/
 
 # Secrets
 service/.env

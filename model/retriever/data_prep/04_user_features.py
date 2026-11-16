@@ -1,16 +1,13 @@
-"""04 — User features: gender_id + joined_bucket (cho user tower).
+"""04: user features gender_id + joined_bucket for the user tower.
 
 gender: value (Female/Male/Non-Binary) -> 1..3 (sorted); NaN/unseen -> 0 (OOV). vocab 4.
-joined: year bucket COHORT_BINS (copy verbatim từ profiles_audit/audit_joined.py);
-        5 cohort 0..4. NULL/unparseable -> cohort mới nhất (2022+, id 4) — NULL
-        chỉ 0.54% nên gộp vào bucket lớn nhất, bỏ slot NULL đông cứng. vocab 5.
+joined: year buckets COHORT_BINS, 5 cohorts 0..4. NULL/unparseable joins the newest cohort
+        (2022+, id 4): NULL is rare, so it shares the biggest bucket instead of keeping a
+        frozen slot of its own. vocab 5.
 
-In:  data/cleaned/profiles.csv (pandas), train-data/_user_split.parquet
-Out: train-data/_user_feats.parquet (user_idx, split, gender_id, joined_bucket),
-     train-data/_spec_user.json (gender/joined vocab+dim+map)
-
-Usage:
-    python scripts/build_train_data/04_user_features.py
+Reads data/clean/profiles.csv (pandas) and _user_split.parquet; writes _user_feats.parquet
+(user_idx, split, gender_id, joined_bucket) and _spec_user.json (gender/joined vocab + dim +
+map), both in train/retriever/data/.
 """
 import json
 import pathlib
@@ -21,8 +18,8 @@ import polars as pl
 
 RETRIEVER = pathlib.Path(__file__).parent.parent          # model/retriever/
 ROOT = RETRIEVER.parent.parent                            # repo root
-PROFILES = ROOT / "data" / "cleaned" / "profiles.csv"
-OUT = RETRIEVER / "train-data"
+PROFILES = ROOT / "data" / "clean" / "profiles.csv"
+OUT = RETRIEVER.parent.parent / "train" / "retriever" / "data"
 
 COHORT_LABELS = ["<=2012", "2013-16", "2017-19", "2020-21", "2022+"]
 COHORT_BINS = [-np.inf, 2012, 2016, 2019, 2021, np.inf]
@@ -39,7 +36,7 @@ def main():
 
     jyear = pd.to_datetime(prof["joined"], errors="coerce").dt.year
     jcode = pd.cut(jyear, bins=COHORT_BINS, labels=False, right=True)  # 0..4
-    # NULL/unparseable -> cohort mới nhất (2022+, id 4): không còn slot NULL riêng
+    # NULL/unparseable -> newest cohort (2022+, id 4), no NULL slot of its own
     prof["joined_bucket"] = jcode.fillna(len(COHORT_LABELS) - 1).astype(np.int16)
 
     feats = pl.from_pandas(prof[["username", "gender_id", "joined_bucket"]])
@@ -49,7 +46,7 @@ def main():
         split.join(feats, on="username", how="left")
         .with_columns(
             pl.col("gender_id").fill_null(0).cast(pl.Int8),  # 0 = gender OOV
-            # join-miss (user không có trong profiles) -> newest cohort, khớp NULL ở line 42
+            # join miss (user absent from profiles) -> newest cohort, like a NULL date above
             pl.col("joined_bucket").fill_null(len(COHORT_LABELS) - 1).cast(pl.Int8),
         )
         .select("user_idx", "split", "gender_id", "joined_bucket")

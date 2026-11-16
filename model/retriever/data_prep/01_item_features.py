@@ -1,18 +1,14 @@
-"""01 — Item features + anime id map + cold-item set H cho Two-Tower retrieval.
+"""01: item features, the anime id map and the cold-item set H for the Two-Tower retriever.
 
-Đọc data/cleaned/details.csv (pandas, file nhỏ), encode toàn bộ feature item theo
-note.txt, re-index mal_id -> anime_idx (0=PAD, 1=OOV, real 2..N+1 sort theo mal_id).
-v2: chọn thêm tập cold H = ~COLD_FRAC anime mới nhất theo start_date (null date ->
-loại khỏi candidacy) — 05 dùng để cách ly khỏi training, eval dùng làm cold slice.
-Ghi: train-data/anime_id_map.parquet, train-data/item_features.parquet,
-     train-data/cold_items.parquet, train-data/_spec_item.json (merge ở script 06).
+Reads data/clean/details.csv (pandas, the file is small), encodes every item feature and
+re-indexes mal_id -> anime_idx (0 = PAD, 1 = OOV, real 2..N+1 sorted by mal_id). Also picks
+the cold set H = the ~COLD_FRAC newest anime by start_date (a null date excludes it): 05 keeps
+H out of training and eval uses it as the cold slice.
+Writes anime_id_map.parquet, item_features.parquet, cold_items.parquet and _spec_item.json
+(merged by 06) to train/retriever/data/.
 
-Bucket edges copy verbatim từ scripts/details_audit (start_date ERA_BINS, episodes
-BUCKET_BINS) để khớp với audit. Encoding tất định: vocab map lưu trong spec -> serve
-encode y hệt.
-
-Usage:
-    python scripts/build_train_data/01_item_features.py
+Encoding is deterministic and the vocab maps are stored in the spec, so serving encodes
+exactly the same way.
 """
 import ast
 import json
@@ -28,27 +24,27 @@ from prep_config import COLD_FRAC
 
 RETRIEVER = pathlib.Path(__file__).parent.parent          # model/retriever/
 ROOT = RETRIEVER.parent.parent                            # repo root
-SRC = ROOT / "data" / "cleaned" / "details.csv"
-OUT = RETRIEVER / "train-data"
-OUT.mkdir(exist_ok=True)
+SRC = ROOT / "data" / "clean" / "details.csv"
+OUT = RETRIEVER.parent.parent / "train" / "retriever" / "data"
+OUT.mkdir(parents=True, exist_ok=True)
 
 PAD, OOV, FIRST_REAL = 0, 1, 2
 
-# --- bucket edges: copy từ details_audit/audit_start_date.py & audit_episodes.py ---
+# --- bucket edges ---
 ERA_LABELS = ["<=1989", "1990-99", "2000-09", "2010-17", "2018+"]
 ERA_BINS = [-np.inf, 1989, 1999, 2009, 2017, np.inf]
 EP_LABELS = ["1", "2", "3-6", "7-13", "14-26", "27-52", "53+"]
 EP_BINS = [0, 1, 2, 6, 13, 26, 52, np.inf]
 
-STUDIO_MIN_COUNT = 10  # note.txt: occurrence >= 10 -> 300 tag
+STUDIO_MIN_COUNT = 10  # studios seen >= 10 times keep their own id (300 of them); the rest share OOV
 
-# embedding dims (note.txt). multi-hot (genres/themes) không có dim — là vector thẳng.
+# embedding dims; the multi-hot genres/themes have no dim: they are fed as raw vectors.
 DIMS = {"type": 4, "source": 8, "rating": 4, "demographics": 4,
         "start_year": 4, "episodes": 4, "studios": 16}
 
 
 def parse_list(v):
-    """'[]'/NaN -> []; "['A','B']" -> ['A','B']. Khớp parse_list trong audit."""
+    """'[]'/NaN -> []; "['A','B']" -> ['A','B']."""
     if pd.isna(v):
         return []
     try:
@@ -67,7 +63,7 @@ def encode_cat(series):
 
 
 def encode_demographics(series):
-    """Single-tag (lấy tag đầu). empty -> 0 ('none'); 5 tag -> 1..5. Không OOV (closed set)."""
+    """Single tag (the first one). empty -> 0 ('none'); the 5 tags -> 1..5. No OOV (closed set)."""
     first = series.map(parse_list).map(lambda L: L[0] if L else None)
     tags = sorted(t for t in first.dropna().unique())
     tmap = {t: i + 1 for i, t in enumerate(tags)}  # 0 = none/empty
@@ -76,7 +72,7 @@ def encode_demographics(series):
 
 
 def encode_multihot(series):
-    """Multi-hot trên tag set (sorted) + 1 chiều present ở cuối."""
+    """Multi-hot over the sorted tag set, plus a final 'present' column."""
     parsed = series.map(parse_list)
     tags = sorted({t for L in parsed for t in L})
     tmap = {t: i for i, t in enumerate(tags)}
@@ -92,7 +88,8 @@ def encode_multihot(series):
 
 
 def encode_studios(series):
-    """Multi-value (avg-pool ở model). 0=empty, 1=OOV, 2..=studio occ>=10. List id/anime."""
+    """Multi-value (average-pooled in the model): 0 = empty, 1 = OOV, 2.. = studios seen >= 10
+    times; one list of ids per anime."""
     parsed = series.map(parse_list)
     cnt = Counter(t for L in parsed for t in L)
     kept = sorted(t for t, c in cnt.items() if c >= STUDIO_MIN_COUNT)
@@ -104,7 +101,7 @@ def encode_studios(series):
 
 
 def bucketize(series, bins, null_id=0):
-    """pd.cut -> code 0..(nbins-1); +1 để dành id0=NULL. NaN -> null_id."""
+    """pd.cut -> codes 0..(nbins-1), shifted by 1 to keep id 0 for NULL; NaN -> null_id."""
     code = pd.cut(series, bins=bins, labels=False, right=True, include_lowest=True)
     return (code + 1).fillna(null_id).to_numpy(np.int16)
 
@@ -130,7 +127,7 @@ def main():
     themes_mat, theme_map, theme_present, theme_w = encode_multihot(df["themes"])
     studio_ids, studio_map = encode_studios(df["studios"])
 
-    # --- verify vocab sizes khớp note.txt (bắt data drift sớm) ---
+    # --- vocab sizes must match the expected ones (catches data drift early) ---
     checks = {
         "type": (len(type_map) + 1, 10), "source": (len(source_map) + 1, 18),
         "rating": (len(rating_map) + 1, 7), "demographics": (len(demo_map) + 1, 6),
@@ -144,7 +141,7 @@ def main():
         print(f"  {name:<14} {got:>4}  (expected {exp})  {flag}")
         assert got == exp, f"{name}: got {got}, expected {exp}"
 
-    # --- 2 special rows (PAD, OOV): mọi feature neutral = 0 ---
+    # --- 2 special rows (PAD, OOV): every feature neutral = 0 ---
     sp_scalar = {k: [0, 0] for k in
                  ["type_id", "source_id", "rating_id", "demographics_id",
                   "startyear_bucket", "episodes_bucket"]}
@@ -180,8 +177,8 @@ def main():
                     ).write_parquet(OUT / "anime_id_map.parquet")
     print(f"anime_id_map.parquet: {n:,} rows")
 
-    # --- cold-item set H: COLD_FRAC anime mới nhất theo start_date (null -> không candidacy).
-    # Tie cùng ngày phá bằng thứ tự df (mal_id asc, mergesort stable) -> tất định.
+    # --- cold-item set H: the COLD_FRAC newest anime by start_date (null dates are not candidates).
+    # Ties on one date break by df order (mal_id asc, stable mergesort), so H is deterministic.
     n_cold = math.ceil(COLD_FRAC * n)
     valid = dates.notna()
     newest = dates[valid].sort_values(ascending=False, kind="mergesort")

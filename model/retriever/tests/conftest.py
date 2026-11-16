@@ -1,22 +1,19 @@
-"""Fixtures synthetic cho test invariants — KHÔNG cần train-data/ (chạy ở mọi máy).
+"""Synthetic fixtures for the invariant tests: no train data needed, so they run anywhere.
 
-Mô phỏng spec/ItemTable/UserTable nhỏ, đúng các invariant của artifacts thật:
-anime_idx 0=PAD/1=OOV/real>=2; studios id 0 chỉ xuất hiện dạng [0,...] standalone
-(row toàn 0 = empty) hoặc pad cuối row non-empty; history ragged sort score desc.
+They mimic a small spec/ItemTable/UserTable with the invariants of the real artifacts:
+anime_idx 0 = PAD / 1 = OOV / real >= 2; studio id 0 only as a standalone [0, ...] row
+(all zeros = empty) or as padding at the end of a non-empty row; ragged histories sorted
+by score desc.
 """
 import copy
-import pathlib
-import sys
 
 import numpy as np
 import pytest
 import torch
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "src"))
-
-import config as cfg_mod  # noqa: E402
-import data as data_mod  # noqa: E402
-import model as M  # noqa: E402
+from model.retriever import config as cfg_mod
+from model.retriever import data as data_mod
+from model.retriever import model as M
 
 _SPEC = {
     "special_idx": {"PAD": 0, "OOV": 1, "first_real": 2},
@@ -40,12 +37,12 @@ def _make_item_table(num_items=NUM_ITEMS):
     it.cat = {c: torch.randint(0, 4, (num_items,), generator=g) for c in data_mod.ItemTable.CAT_COLS}
     it.genres = torch.randint(0, 2, (num_items, 5), generator=g).float()
     it.themes = torch.randint(0, 2, (num_items, 6), generator=g).float()
-    # row 0/1 (PAD/OOV) + row 4: studios rỗng = [0,0]; còn lại id>=2 pad 0 cuối
+    # rows 0/1 (PAD/OOV) and row 4 have no studios = [0,0]; the others have ids >= 2, 0-padded at the end
     it.studios = torch.tensor([
         [0, 0], [0, 0], [2, 3], [4, 0], [0, 0], [5, 2], [3, 0], [2, 0], [4, 5], [3, 0],
     ]).long()
-    # synopsis synthetic (raw_dim 16): PAD/OOV (0,1) = zero + low_info; row 4 = real low_info
-    # (test nhánh no_synopsis); còn lại có embedding "thật". L2-norm như artifact.
+    # synthetic synopsis (raw_dim 16): PAD/OOV (0, 1) are zero + low_info; row 4 is a real low-info
+    # item (tests the no_synopsis branch); the rest get "real" embeddings, L2-normalized like the artifact.
     it.synopsis_emb = torch.nn.functional.normalize(
         torch.randn(num_items, 16, generator=g), dim=-1)
     it.synopsis_emb[0] = 0.0
@@ -57,7 +54,7 @@ def _make_item_table(num_items=NUM_ITEMS):
 
 
 def _make_users():
-    """3 user: u0 history [2,3,4,5] (scores 10,9,8,7); u1 [6,7] (5,0); u2 rỗng."""
+    """3 users: u0 history [2,3,4,5] (scores 10,9,8,7); u1 [6,7] (5,0); u2 empty."""
     ut = data_mod.UserTable.__new__(data_mod.UserTable)
     ut.num_users = 3
     ut.hist_vals = np.array([2, 3, 4, 5, 6, 7], np.int32)

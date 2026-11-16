@@ -1,6 +1,6 @@
 # service/
 
-The deployable web app — the final stage of the pipeline, turning a MyAnimeList username into anime recommendations. It's a **read-only consumer of `artifacts/`**: it loads the exported model and picks up a retrain automatically because the file contract doesn't change.
+The deployable web app — the final stage of the pipeline, turning a MyAnimeList username into anime recommendations. It's a **read-only consumer of `export/`**: it loads the exported model and picks up a retrain automatically because the file contract doesn't change.
 
 Two halves, each with its own README:
 

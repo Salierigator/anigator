@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { RecommendRequest, RecommendResponse, MapResponse, PosterEntry } from './types';
+import type { RecommendRequest, RecommendResponse, PosterEntry } from './types';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -10,7 +10,7 @@ const api = axios.create({
   },
 });
 
-// Fire-and-forget: đánh thức backend free-tier (spin down khi idle) ngay khi trang mở
+// Fire-and-forget: wake the free-tier backend (it spins down when idle) as soon as the page opens
 export const pingHealthAPI = (): void => {
   api.get('/api/health').catch(() => {});
 };
@@ -32,18 +32,7 @@ export const fetchPostersAPI = async (ids: number[]): Promise<Record<number, Pos
   return result;
 };
 
-let cachedMapData: MapResponse | null = null;
-
-export const fetchMapAPI = async (): Promise<MapResponse> => {
-  if (cachedMapData) {
-    return cachedMapData;
-  }
-  const response = await api.get<MapResponse>('/api/map');
-  cachedMapData = response.data;
-  return response.data;
-};
-
-// Chi tiết 1 anime cho modal.
+// Details of one anime for the modal.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const fetchAnimeDetailAPI = async (malId: number): Promise<any> => {
   const response = await api.get(`/api/anime/${malId}`);
@@ -54,6 +43,4 @@ export const checkUsernameExistsAPI = async (username: string, signal?: AbortSig
   const response = await api.get<{ exists: boolean }>(`/api/users/${username}/exists`, { signal });
   return response.data;
 };
-
-export { API_URL };
 

@@ -1,17 +1,17 @@
-"""Invariants features.py — thứ tự FEATURE_NAMES, cold policy, determinism (artifacts thật)."""
+"""features.py invariants on the real bundle: FEATURE_NAMES order, cold policy, determinism."""
 import numpy as np
 import pytest
 
-import config
-from features import CAT_COLS, FEATURE_NAMES, N_CROSS, ItemFeatures, build_frame
+from model.ranker import config
+from model.ranker.features import CAT_COLS, FEATURE_NAMES, N_CROSS, ItemFeatures, build_frame
 
 pytestmark = pytest.mark.skipif(
-    not (config.ARTIFACTS / "item_index.parquet").exists(), reason="cần artifacts/")
+    not (config.EXPORT / "item_index.parquet").exists(), reason="needs export/")
 
 
 @pytest.fixture(scope="module")
 def itemfeat():
-    return ItemFeatures.load(config.ARTIFACTS, config.CLEANED)
+    return ItemFeatures.load(config.EXPORT)
 
 
 def test_build_frame_column_order(itemfeat):
@@ -24,18 +24,18 @@ def test_build_frame_column_order(itemfeat):
 def test_cold_policy_no_leak(itemfeat):
     cold = itemfeat.is_cold
     assert cold.sum() > 0
-    assert itemfeat.item["mal_score_missing"][cold].all(), "cold phải flag missing"
+    assert itemfeat.item["mal_score_missing"][cold].all(), "cold items must be flagged missing"
     assert (itemfeat.item["log_scored_by"][cold] == 0).all()
     assert (itemfeat.item["log_members"][cold] == 0).all()
     assert (itemfeat.item["log_favorites"][cold] == 0).all()
     assert itemfeat.item["rank_missing"][cold].all()
-    # imputed về median warm — mọi row cold cùng 1 giá trị
+    # imputed to the warm median: every cold row gets the same value
     assert len(np.unique(itemfeat.item["mal_score"][cold])) == 1
     assert len(np.unique(itemfeat.item["popularity"][cold])) == 1
 
 
 def test_categorical_codes_deterministic(itemfeat):
-    again = ItemFeatures.load(config.ARTIFACTS, config.CLEANED)
+    again = ItemFeatures.load(config.EXPORT)
     for c in CAT_COLS:
         assert (itemfeat.item[c] == again.item[c]).all()
     assert (itemfeat.genres == again.genres).all()
