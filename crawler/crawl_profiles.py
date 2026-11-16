@@ -1,13 +1,7 @@
-"""Crawl user profiles: Jikan first, with an HTML fallback that yields the same columns.
+"""Crawl user profiles by parsing myanimelist.net/profile/{u}.
 
-Both sources fill identical columns (the `source` column records which):
-- Jikan /users/{u}/full is primary because it keeps profile traffic off our IP:
-  username polling and the ratings crawler already hit MAL directly for days, and
-  through Jikan MAL sees Jikan's servers instead.
-- Direct parse of myanimelist.net/profile/{u} is the fallback (sidebar, anime stats
-  and favorites are all server-rendered). Jikan proxies MAL live and mass-504s
-  during outages, so a circuit breaker skips it for a while after repeated failures
-  instead of paying its retries on every user.
+The sidebar, anime stats and favorites are all server-rendered, so one page fills every
+column.
 
 Only crawls users whose ratings crawl succeeded (`ratings_status='ok'`): a
 private, deleted or empty-list user has no training value. Run crawl_ratings.py
@@ -17,14 +11,13 @@ Output: data/raw/profiles.csv. `favorites_anime` holds space-separated mal_ids;
 `joined` and `birthday` are normalized to YYYY-MM-DD. Same resume/dedup semantics
 as crawl_ratings: rows append first, state marks second. Keep the column layout
 fixed: re-crawled rows are appended to the existing file and cleaning keeps the
-last row per username.
+last row per username. `source` is always `html`; the column stays for that layout.
 """
 from __future__ import annotations
 
 import argparse
 import csv
 import re
-import time
 from datetime import datetime
 
 import common
@@ -34,9 +27,6 @@ STAT_KEYS = ["days_watched", "mean_score", "watching", "completed", "on_hold", "
              "plan_to_watch", "total_entries", "rewatched", "episodes_watched"]
 COLS = ["username", "gender", "birthday", "location", "joined", "favorites_anime",
         *STAT_KEYS, "source"]
-
-BREAKER_FAILS = 10      # consecutive Jikan failures before we
-BREAKER_PAUSE = 300     # stop trying it for this many seconds (auto mode)
 
 SIDEBAR_RE = (r'<span class="user-status-title[^"]*">{label}</span>'
               r'<span class="user-status-data[^"]*">([^<]+)</span>')
@@ -111,18 +101,9 @@ def from_html(html, username):
             *(_count(block, lbl) for lbl in COUNT_LABELS), "html"]
 
 
-def from_jikan(u, username):
-    st = (u.get("statistics") or {}).get("anime") or {}
-    favs = [str(a["mal_id"]) for a in (u.get("favorites") or {}).get("anime", [])]
-    return [username, u.get("gender") or "", (u.get("birthday") or "")[:10],
-            u.get("location") or "", (u.get("joined") or "")[:10], " ".join(favs),
-            *(st.get(k, "") for k in STAT_KEYS), "jikan"]
-
-
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--limit", type=int, help="crawl at most N users this run")
-    ap.add_argument("--source", choices=["auto", "jikan", "html"], default="auto")
     ap.add_argument("--retry-errors", action="store_true", help="re-queue users marked 'error'")
     ap.add_argument("--requeue-file", help="file with one username per line to crawl again "
                                            "(rows append; cleaning keeps the last one)")
@@ -130,8 +111,7 @@ def main():
 
     common.install_signals()
     conn = common.db()
-    jikan = common.Client(min_interval=1.1, tries=3)
-    html = common.Client(min_interval=1.2, headers={"User-Agent": common.BROWSER_UA})
+    client = common.Client(min_interval=1.2, headers={"User-Agent": common.BROWSER_UA})
 
     if args.retry_errors:
         n = conn.execute("UPDATE users SET profile_status=NULL WHERE profile_status='error'").rowcount
@@ -157,8 +137,6 @@ def main():
 
     new_file = not OUT.exists()
     n_done = 0
-    jikan_fails = 0
-    jikan_down_until = 0.0
     with open(OUT, "a", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         if new_file:
@@ -167,31 +145,12 @@ def main():
             if common.STOP:
                 break
             row, status = None, "error"
-            try_jikan = (args.source == "jikan"
-                         or (args.source == "auto" and time.time() >= jikan_down_until))
-            if try_jikan:
-                r = jikan.get(f"{common.JIKAN_BASE}/users/{username}/full")
-                if r is not None and r.status_code == 200:
-                    row, status = from_jikan(r.json()["data"], username), "ok"
-                    jikan_fails = 0
-                elif r is not None and r.status_code == 404:
-                    # Jikan has its own cache/lookup: its 404 is not MAL's answer,
-                    # so fall through to HTML instead of blacklisting the user
-                    jikan_fails = 0
-                else:
-                    jikan_fails += 1
-                    if args.source == "auto" and jikan_fails >= BREAKER_FAILS:
-                        jikan_down_until = time.time() + BREAKER_PAUSE
-                        jikan_fails = 0
-                        print(f"[!] jikan failed {BREAKER_FAILS}x in a row: "
-                              f"html-only for {BREAKER_PAUSE}s")
-            if row is None and args.source in ("auto", "html"):
-                r = html.get(f"https://myanimelist.net/profile/{username}")
-                if r is not None and r.status_code == 200:
-                    row = from_html(r.text, username)      # None = parse mismatch
-                    status = "ok" if row else "error"
-                elif r is not None and r.status_code == 404:
-                    status = "http_404"
+            r = client.get(f"https://myanimelist.net/profile/{username}")
+            if r is not None and r.status_code == 200:
+                row = from_html(r.text, username)      # None = parse mismatch
+                status = "ok" if row else "error"
+            elif r is not None and r.status_code == 404:
+                status = "http_404"
             if row:
                 w.writerow(row)
                 f.flush()
@@ -199,8 +158,7 @@ def main():
                          (status, common.now_iso(), username))
             conn.commit()
             n_done += 1
-            tag = status if not row else f"{status} ({row[-1]})"
-            print(f"[+] {n_done}/{len(pending)} {username}: {tag}")
+            print(f"[+] {n_done}/{len(pending)} {username}: {status}")
 
     print(f"[done] {n_done} users this run")
     for st, n in conn.execute(

@@ -19,7 +19,6 @@ RAW = ROOT / "data" / "raw"
 DB_PATH = RAW / "crawl_state.sqlite"
 
 MAL_BASE = "https://api.myanimelist.net/v2"
-JIKAN_BASE = "https://api.jikan.moe/v4"
 BROWSER_UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/126.0 Safari/537.36"
@@ -113,7 +112,6 @@ CREATE TABLE IF NOT EXISTS users(
     profile_status  TEXT,    -- NULL=pending | ok | http_404 | error
     profile_at      TEXT
 );
-CREATE TABLE IF NOT EXISTS kv(k TEXT PRIMARY KEY, v TEXT);
 """
 
 
@@ -126,11 +124,3 @@ def db() -> sqlite3.Connection:
     conn.executescript(SCHEMA)
     return conn
 
-
-def kv_get(conn, k, default=None):
-    row = conn.execute("SELECT v FROM kv WHERE k=?", (k,)).fetchone()
-    return row[0] if row else default
-
-
-def kv_set(conn, k, v):
-    conn.execute("INSERT OR REPLACE INTO kv(k,v) VALUES(?,?)", (k, str(v)))

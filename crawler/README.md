@@ -1,24 +1,24 @@
 # Crawler
 
-Collects a fresh anime + user-rating snapshot from MyAnimeList into `data/raw/` (gitignored). All four scripts are rate-limited, resumable (stop with Ctrl-C, rerun to continue), and dedup-safe — they share one SQLite state file so a rerun never re-does finished work.
+Collects a fresh anime + user-rating snapshot from MyAnimeList into `data/raw/` (gitignored). The three user crawlers are rate-limited, resumable (stop with Ctrl-C, rerun to continue), and dedup-safe — they share one SQLite state file so a rerun never re-does finished work. The catalog crawler is a one-minute sweep that rewrites its file.
 
 ## Scripts
 
 | Script | Source | Output | Full-crawl time |
 |---|---|---|---|
 | `collect_usernames.py` | scrape `users.php` (recently-online) | state DB | background, days |
-| `crawl_details.py` | Jikan v4 `/anime` | `details.jsonl.gz` | ~40 min |
+| `crawl_details.py` | MAL API v2 `/anime/ranking` | `details_mal.jsonl.gz` | ~1 min |
 | `crawl_ratings.py` | MAL API v2 `/users/{u}/animelist` | `ratings.csv` | ~1–2 days / 300k users |
-| `crawl_profiles.py` | Jikan `/users/{u}/full` (HTML fallback) | `profiles.csv` | ~4 days / 300k users |
+| `crawl_profiles.py` | scrape `/profile/{u}` | `profiles.csv` | ~4 days / 300k users |
 
-Details come from Jikan (its schema matches the `details.csv` the current model was trained on, and includes `favorites`); ratings come from the official MAL API (1000 entries/request); profiles come from Jikan with a direct-HTML fallback for when Jikan is down. `collect_usernames.py` feeds active usernames to the ratings and profile crawlers.
+The catalog and the ratings come from the official MAL API (500 anime or 1000 list entries per request); profiles are parsed from the profile page, which the API does not expose. `collect_usernames.py` feeds active usernames to the ratings and profile crawlers.
 
 ## Running a snapshot
 
 ```bash
 # 1. run in the background for days (nohup/tmux) — feeds the other two:
 venv/bin/python crawler/collect_usernames.py
-# 2. anytime, ~40 min:
+# 2. anytime, ~1 min:
 venv/bin/python crawler/crawl_details.py
 # 3+4. in parallel with 1, rerun until nothing is pending:
 venv/bin/python crawler/crawl_ratings.py
@@ -38,7 +38,7 @@ Private (403), deleted (404), or empty accounts are marked once and never retrie
 
 ## Output
 
-- `details.jsonl.gz` — raw Jikan anime objects, one per line; cleaning flattens them into `details.csv`.
+- `details_mal.jsonl.gz` — raw MAL API anime objects, one per line (`genres` holds genres, themes and demographics together); cleaning flattens them into `details.csv`.
 - `ratings.csv` — one row per user–anime: `username, anime_id, status, score, num_episodes_watched, is_rewatching, updated_at, start_date, finish_date`.
 - `profiles.csv` — one row per user: profile fields (gender, birthday, location, joined date, favorites) plus list stats (days watched, mean score, per-status counts, …).
 
