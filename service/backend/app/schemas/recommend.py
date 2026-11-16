@@ -1,6 +1,6 @@
 """Pydantic schemas: the I/O contract of POST /api/recommend.
 
-AnimeItem matches Recommender._row (model/recommender.py) plus image_url, which the backend
+AnimeItem matches the rows a recommender returns (model/base.py) plus image_url, which the backend
 never fills (cards load posters through /api/posters).
 typing.Optional/List because the venv runs Python 3.9: pydantic cannot evaluate `X | None` there.
 """

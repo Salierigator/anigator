@@ -1,7 +1,7 @@
 """Central settings (pydantic-settings), read from the environment and service/.env.
 
 Mock mode (`MOCK_MODE=1`) is the default, so the frontend can be developed without the model;
-`MOCK_MODE=0` makes the lifespan load the real Recommender.
+`MOCK_MODE=0` makes the lifespan load the real recommender (`RECOMMENDER`, a folder of model/).
 """
 from __future__ import annotations
 
@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     )
 
     mock_mode: bool = True
+    recommender: str = "twotower"                         # architecture under model/ served in real mode
     cors_origins: List[str] = ["http://localhost:5173"]   # Vite dev server
     fixtures_dir: Path = BACKEND / "fixtures"
 

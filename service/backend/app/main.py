@@ -2,7 +2,7 @@
 
 The lifespan builds the service once:
   - mock mode (default): MockService serves the fixtures, no model is loaded.
-  - real mode (MOCK_MODE=0): RealService loads the Recommender.
+  - real mode (MOCK_MODE=0): RealService loads the recommender.
 """
 from __future__ import annotations
 

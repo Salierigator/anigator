@@ -22,16 +22,18 @@ Two-stage recommender architecture (retrieval + rerank) — the standard shape f
 2. **Ranking** — LightGBM (lambdarank) reranks the top 200 candidates on 29 features (user–item cosine, history affinity, genre/theme overlap, MAL metadata, …). Expensive per item, so it only ever sees the shortlist.
 3. **Serving** — FastAPI backend + React frontend. Newly released titles the model never trained on (also called cold items) are served as a separate section ranked by cosine, never through the ranker — the ranker is trained on warm items and buries cold ones.
 
-For a detailed description of each stage, see the component README: [retriever](model/retriever/README.md), [ranker](model/ranker/README.md), and [service](service/README.md).
+For a detailed description of each stage, see the component README: [retriever](model/twotower/retriever/README.md), [ranker](model/twotower/ranker/README.md), and [service](service/README.md).
 
 ```
-data/  ──>  model/      ──>  export/       ──>  service/
-raw         retriever        item_vectors       FastAPI + React
-clean       + ranker         user_tower         (read-only consumer)
-                             ranker.txt
+data/  ──>  model/twotower/  ──>  export/twotower/  ──>  service/
+raw         retriever             item_vectors           FastAPI + React
+clean       + ranker              user_tower             (read-only consumer)
+                                  ranker.txt
 ```
 
-`export/` is the contract between training and serving: the retriever and ranker save their trained models here, and the service only reads them. Neither side imports the other's training code, so the serving path cannot silently drift from what was trained.
+`export/twotower/` is the contract between training and serving: the retriever and ranker save their trained models here, and the service only reads them. Neither side imports the other's training code, so the serving path cannot silently drift from what was trained.
+
+`model/` holds one folder per recommender architecture; `twotower/` is the one described above and the only one so far. The service reaches a model through a small interface (`model/base.py`) and picks the architecture by name, so another architecture is a new folder rather than a change to the service — see [`model/README.md`](model/README.md).
 
 ## Repository layout
 
@@ -40,11 +42,12 @@ clean       + ranker         user_tower         (read-only consumer)
 | `crawler/` | MyAnimeList crawler, writes `data/raw/` |
 | `cleaning/` | `data/raw/` → `data/clean/` (pipeline being rewritten) |
 | `data/` | Schema samples; raw/clean data are not committed |
-| `model/retriever/` | Two-tower model: data prep, training, export to `export/` |
-| `model/ranker/` | LightGBM reranker: pool building, training, eval gate, export to `export/` |
-| `model/recommender.py` | Serving core (`Recommender`): retrieve, rerank, cold section; the one class the service imports |
-| `train/` | Training data and checkpoints (not committed) |
-| `export/` | Model exports (not committed) |
+| `model/base.py` | The interface every architecture's serving class implements (`Recommender`) |
+| `model/twotower/retriever/` | Two-tower model: data prep, training, export to `export/twotower/` |
+| `model/twotower/ranker/` | LightGBM reranker: pool building, training, eval gate, export to `export/twotower/` |
+| `model/twotower/serve.py` | Serving core: retrieve, rerank, cold section |
+| `train/<architecture>/` | Training data and checkpoints (not committed) |
+| `export/<architecture>/` | Model exports (not committed) |
 | `service/backend/` | FastAPI app + CLI (`recommend.py`), read-only consumer of `export/` |
 | `service/frontend/` | React + Vite + TypeScript UI |
 
@@ -67,13 +70,13 @@ pip install -r service/backend/requirements.txt   # FastAPI + uvicorn for the ba
 echo "MAL_CLIENT_ID=your_id_here" > service/.env
 ```
 
-> **Note:** The run commands below need the trained model files in `export/` — a download link will be added later. Mock mode runs without them.
+> **Note:** The run commands below need the trained model files in `export/twotower/` — a download link will be added later. Mock mode runs without them.
 
 ```bash
 # Backend, mock mode — returns fixtures, loads no model. Best for frontend work.
 cd service/backend && MOCK_MODE=1 uvicorn app.main:app --reload --port 8000
 
-# Backend, real mode — needs export/; MAL_CLIENT_ID in service/.env for live usernames
+# Backend, real mode — needs export/twotower/; MAL_CLIENT_ID in service/.env for live usernames
 cd service/backend && MOCK_MODE=0 uvicorn app.main:app --port 8000
 
 # Frontend, run it in another terminal
@@ -87,9 +90,9 @@ venv/bin/python service/backend/recommend.py <mal-username> --top-k 20
 
 ## Data & Training
 
-The datasets are MAL-derived and gigabytes in size, so they are not part of this repo; `data/samples/` holds the first rows of each file as a schema reference. The model currently in `export/` was trained on a mid-2025 snapshot. A fresh 2026 crawl of user ratings and profiles is done (see [`crawler/README.md`](crawler/README.md)); its cleaning pipeline ([`cleaning/`](cleaning/README.md)) is the next step.
+The datasets are MAL-derived and gigabytes in size, so they are not part of this repo; `data/samples/` holds the first rows of each file as a schema reference. The model currently in `export/twotower/` was trained on a mid-2025 snapshot. A fresh 2026 crawl of user ratings and profiles is done (see [`crawler/README.md`](crawler/README.md)); its cleaning pipeline ([`cleaning/`](cleaning/README.md)) is the next step.
 
-Retriever training runs on Colab GPU; the ranker trains locally on CPU. Both write into `export/`, and the service picks up a new model with no code change — see [`model/README.md`](model/README.md) for the full retrain loop.
+Retriever training runs on Colab GPU; the ranker trains locally on CPU. Both write into `export/twotower/`, and the service picks up a new model with no code change — see [`model/twotower/README.md`](model/twotower/README.md) for the full retrain loop.
 
 ## History
 

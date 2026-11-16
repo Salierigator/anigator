@@ -1,12 +1,12 @@
 """CLI inference end to end: a MAL username (or a file of mal_ids) -> the two recommendation sections.
 
-A thin entry point: the serving logic lives in model/recommender.py (class Recommender), the MAL
-client in app/clients/mal_api.py. The FastAPI app reuses the same Recommender through
-app/services/real_service.py.
+A thin entry point: the serving logic lives in the architecture picked with --model (a folder of
+model/, reached through model.load), the MAL client in app/clients/mal_api.py. The FastAPI app
+uses the same recommender through app/services/real_service.py.
 
 History source, in order:
-  1. a username in the dataset -> export/users_history.parquet (offline, no API; for val/test
-     users the history is the support, so hits on held-out queries are a good sign).
+  1. a username the recommender knows from its own data (offline, no API; for val/test users the
+     history is the support, so hits on held-out queries are a good sign).
   2. --live, or a username outside the dataset -> MAL v2 animelist + Jikan profile (needs
      MAL_CLIENT_ID in service/.env), cached as JSON in service/backend/cache/.
   3. --mal-ids <file>: one mal_id per line, treated as completed without a score.
@@ -23,7 +23,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # service/backend/, for `import app`
 import app.config  # noqa: E402,F401  (puts the repo root on sys.path)
-from model.recommender import Recommender                 # noqa: E402
+import model                                              # noqa: E402
+from model.base import UserHistory                        # noqa: E402
 
 CACHE = Path(__file__).resolve().parent / "cache"
 
@@ -65,54 +66,52 @@ def main() -> None:
     ap.add_argument("--live", action="store_true", help="fetch from the API even if the username is in the dataset")
     ap.add_argument("--no-cache", action="store_true")
     ap.add_argument("--dump", action="store_true", help="write the results as JSON to service/backend/cache/")
+    ap.add_argument("--model", default="twotower", help="architecture under model/ (default: twotower)")
     args = ap.parse_args()
     if not args.username and not args.mal_ids:
         ap.error("a username or --mal-ids is required")
 
     t0 = time.time()
-    rec = Recommender()
-    print(f"[load] Recommender ready ({time.time() - t0:.1f}s)")
+    rec = model.load(args.model)
+    print(f"[load] {args.model} ready ({time.time() - t0:.1f}s)")
 
     if args.mal_ids:
         ids = [int(l) for l in args.mal_ids.read_text().split() if l.strip()]
-        user, name = rec.user_from_mal_ids(ids), args.mal_ids.stem
-        print(f"[user] {len(ids)} mal_ids -> {len(user['hist_idx'])} items in the corpus")
+        user, name = UserHistory(mal_ids=ids), args.mal_ids.stem
+        print(f"[user] {len(ids)} mal_ids")
     else:
         name = args.username
-        user = None if args.live else rec.user_from_dataset(name)
-        if user is None:
-            animelist, profile = fetch_live(name, args.no_cache)
-            if not animelist:
+        user = UserHistory(username=name)
+        if args.live or not rec.knows_user(name):
+            user.animelist, user.profile = fetch_live(name, args.no_cache)
+            if not user.animelist:
                 print("[!] empty animelist (private list, unknown user, or no MAL_CLIENT_ID "
                       "in service/.env)")
-            user = rec.user_from_animelist(animelist or [], profile, name)
-
-    n_hist = len(user["hist_idx"])
-    print(f"[user] '{name}' source={user['source']} split={user['split']} "
-          f"history={n_hist} seen(masked)={len(user['seen'])}"
-          + ("   [!] COLD START -> popularity-leaning results" if n_hist == 0 else ""))
-    top = [rec._row(int(a)) | {"score": int(s)}
-           for a, s in zip(user["hist_idx"][:5], user["hist_score"][:5])]
-    for r in top:
-        print(f"        hist: {r['title'][:40]:<40} (score {r['score']})")
+                user.animelist = []
 
     t1 = time.time()
     try:
         out = rec.recommend(user, top_k=args.top_k, cold_k=args.cold_k,
-                            anchor_mal_id=args.anchor, sfw=not args.allow_nsfw)
+                            sfw=not args.allow_nsfw, anchor=args.anchor)
     except KeyError:
         ap.error(f"--anchor {args.anchor} is not in the corpus")
-    print(f"[infer] {time.time() - t1:.2f}s  (alpha={rec.alpha}, K={rec.k_retrieve})"
+    m = out.meta
+    print(f"[user] '{name}' " + " ".join(f"{k}={v}" for k, v in m.items() if k != "history_top")
+          + ("   [!] COLD START -> popularity-leaning results" if not m.get("history_count") else ""))
+    for h in m.get("history_top", []):
+        print(f"        hist: {h['title'][:40]:<40} (score {h['score']})")
+    print(f"[infer] {time.time() - t1:.2f}s"
           + (f"  [anchor mal_id={args.anchor}]" if args.anchor else ""))
-    main_title = (f"Anime like mal_id {args.anchor} (LightGBM rerank, top {args.top_k})"
-                  if args.anchor else f"Recommended for you (LightGBM rerank, top {args.top_k})")
-    print_table(main_title, out["main"])
-    print_table(f"New anime for you (cold, by retriever cosine, top {args.cold_k})", out["cold"])
+    for section, rows in out.sections.items():
+        title = f"{section} (top {len(rows)})"
+        if section == "main" and args.anchor:
+            title = f"{section}: anime like mal_id {args.anchor} (top {len(rows)})"
+        print_table(title, rows)
 
     if args.dump:
         CACHE.mkdir(exist_ok=True)
         p = CACHE / f"{name}_recs.json"
-        p.write_text(json.dumps({"user": name, **out}, ensure_ascii=False, indent=2,
+        p.write_text(json.dumps({"user": name, **out.sections}, ensure_ascii=False, indent=2,
                                 default=str))
         print(f"\n[dump] {p}")
 

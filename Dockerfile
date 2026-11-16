@@ -1,6 +1,6 @@
 # Render.com (Docker, free tier): the backend in real mode. Build context = repo root.
 #
-# The model bundle (export/) is gitignored, so it is not in the build context: it is downloaded
+# The model bundle (export/twotower/) is gitignored, so it is not in the build context: it is downloaded
 # from a Hugging Face model repo at BUILD time and baked into the image (no download on cold start).
 FROM python:3.11-slim
 
@@ -24,17 +24,20 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements-deploy.txt && \
     pip install --no-cache-dir huggingface_hub==0.36.0
 
-# 2) the bundle from the HF model repo (layout artifacts/ + data/cleaned/), all moved into ./export/.
+# 2) the bundle from the HF model repo (layout artifacts/ + data/cleaned/), all moved into
+#    ./export/twotower/.
 #    Another repo = change the default ARG here.
-#    ARTIFACTS_REPO="" skips this step and expects export/ as a bind mount at run time (local tests).
+#    ARTIFACTS_REPO="" skips this step and expects export/twotower/ as a bind mount at run time
+#    (local tests).
 ARG ARTIFACTS_REPO=Salierigator/anime-recommender-artifacts
 ENV ARTIFACTS_REPO=${ARTIFACTS_REPO}
 RUN if [ -n "$ARTIFACTS_REPO" ]; then \
       python -c "import os; from huggingface_hub import snapshot_download; \
 snapshot_download(repo_id=os.environ['ARTIFACTS_REPO'], local_dir='.', \
 allow_patterns=['artifacts/*', 'data/cleaned/*'])" && rm -rf .cache && \
-      mkdir export && mv artifacts/* data/cleaned/* export/ && rmdir artifacts data/cleaned data ; \
-    else echo '>> skip the bundle download: expect a bind mount of export/ at run time' ; fi
+      mkdir -p export/twotower && mv artifacts/* data/cleaned/* export/twotower/ && \
+      rmdir artifacts data/cleaned data ; \
+    else echo '>> skip the bundle download: expect a bind mount of export/twotower/ at run time' ; fi
 
 # 3) code: changes most often, so it comes last and only this layer rebuilds on code edits.
 COPY --chown=user . .
