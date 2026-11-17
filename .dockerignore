@@ -1,39 +1,17 @@
-# Git + CI
+# Server
 .git/
 .github/
-
-# Python
-**/__pycache__/
-.pytest_cache/
-
-# venv
-venv/
-
-# OS
-**/.DS_Store
-
-# Docs, notes and local tooling
 **/*.md
-.claude/
-lab/
 images/
-
-# Data + artifacts (pulled from HF)
-export/
-data/
-
-# Data pipeline code (not part of the backend image)
 crawler/
 cleaning/
-
-# Train outputs
-train/
-
-# Secrets
-service/.env
-
-# Service cache
-service/backend/cache/
-
-# Frontend (deployed separately)
+data/
 service/frontend/
+
+# Local
+venv/
+export/
+train/
+lab/
+service/.env
+service/backend/cache/
