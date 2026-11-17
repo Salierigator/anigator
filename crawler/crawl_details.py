@@ -4,19 +4,18 @@
 the catalog fields cleaning needs, including num_favorites. Genres, themes and
 demographics arrive merged in `genres`.
 
-Output: data/raw/details_mal.jsonl.gz, one MAL anime object per line. A sweep takes about
+Output: data/raw/anime_mal.jsonl, one MAL anime object per line. A sweep takes about
 a minute, so there is no resume: rows go to a .tmp file that replaces the output only
 once the last page has been read.
 """
 from __future__ import annotations
 
 import argparse
-import gzip
 import json
 
 import common
 
-OUT = common.RAW / "details_mal.jsonl.gz"
+OUT = common.RAW / "anime_mal.jsonl"
 FIELDS = ("id,title,alternative_titles,media_type,status,num_episodes,start_date,end_date,"
           "start_season,broadcast,source,rating,nsfw,average_episode_duration,synopsis,"
           "genres,studios,mean,rank,popularity,num_list_users,num_scoring_users,num_favorites,"
@@ -39,7 +38,7 @@ def main():
     seen = set()
     pages = 0
 
-    with gzip.open(tmp, "wt", encoding="utf-8") as f:
+    with open(tmp, "w", encoding="utf-8") as f:
         while url and not common.STOP and (args.pages is None or pages < args.pages):
             r = client.get(url, params=params)
             if r is None or r.status_code != 200:

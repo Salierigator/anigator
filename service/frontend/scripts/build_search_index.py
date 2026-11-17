@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build public/anime-index.json: the client-side search index of the guest picker.
 
-Reads data/raw/details.jsonl.gz (titles incl. title_english + synonyms, poster) and
+Reads data/raw/anime_jikan.jsonl (titles incl. title_english + synonyms, poster) and
 export/item_index.parquet (for the in_corpus flag); read-only on both.
 
 Re-run whenever export/ is re-exported: the index defines what can be picked, so it must follow
@@ -9,14 +9,13 @@ the model version, not the crawl version.
 """
 from __future__ import annotations
 
-import gzip
 import json
 from pathlib import Path
 
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[3]
-DETAILS = ROOT / "data" / "raw" / "details.jsonl.gz"
+DETAILS = ROOT / "data" / "raw" / "anime_jikan.jsonl"
 ITEM_INDEX = ROOT / "export" / "item_index.parquet"
 OUT = ROOT / "service" / "frontend" / "public" / "anime-index.json"
 
@@ -27,7 +26,7 @@ def main() -> None:
     corpus = set(pd.read_parquet(ITEM_INDEX)["mal_id"].tolist())
 
     rows, seen, dropped_nsfw = [], set(), 0
-    with gzip.open(DETAILS, "rt", encoding="utf-8") as fh:
+    with open(DETAILS, encoding="utf-8") as fh:
         for line in fh:
             r = json.loads(line)
             mal_id = r.get("mal_id")

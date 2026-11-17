@@ -7,9 +7,9 @@ Collects a fresh anime + user-rating snapshot from MyAnimeList into `data/raw/` 
 | Script | Source | Output | Full-crawl time |
 |---|---|---|---|
 | `collect_usernames.py` | scrape `users.php` (recently-online) | state DB | background, days |
-| `crawl_details.py` | MAL API v2 `/anime/ranking` | `details_mal.jsonl.gz` | ~1 min |
+| `crawl_details.py` | MAL API v2 `/anime/ranking` | `anime_mal.jsonl` | ~1 min |
 | `crawl_ratings.py` | MAL API v2 `/users/{u}/animelist` | `ratings.csv` | ~1–2 days / 300k users |
-| `crawl_profiles.py` | scrape `/profile/{u}` | `profiles.csv` | ~4 days / 300k users |
+| `crawl_profiles.py` | scrape `/profile/{u}` | `users.csv` | ~4 days / 300k users |
 
 The catalog and the ratings come from the official MAL API (500 anime or 1000 list entries per request); profiles are parsed from the profile page, which the API does not expose. `collect_usernames.py` feeds active usernames to the ratings and profile crawlers.
 
@@ -38,9 +38,9 @@ Private (403), deleted (404), or empty accounts are marked once and never retrie
 
 ## Output
 
-- `details_mal.jsonl.gz` — raw MAL API anime objects, one per line (`genres` holds genres, themes and demographics together); cleaning flattens them into `details.csv`.
+- `anime_mal.jsonl` — raw MAL API anime objects, one per line (`genres` holds genres, themes and demographics together); cleaning flattens them into `details.csv`.
 - `ratings.csv` — one row per user–anime: `username, anime_id, status, score, num_episodes_watched, is_rewatching, updated_at, start_date, finish_date`.
-- `profiles.csv` — one row per user: profile fields (gender, birthday, location, joined date, favorites) plus list stats (days watched, mean score, per-status counts, …).
+- `users.csv` — one row per user: profile fields (gender, birthday, location, joined date, favorites) plus list stats (days watched, mean score, per-status counts, …).
 
 After the crawl, `cleaning/` gets a new pipeline written against these schemas that produces `data/clean/` and refreshes `data/samples/`.
 

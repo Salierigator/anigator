@@ -7,7 +7,7 @@ Only crawls users whose ratings crawl succeeded (`ratings_status='ok'`): a
 private, deleted or empty-list user has no training value. Run crawl_ratings.py
 ahead of (or alongside) this script.
 
-Output: data/raw/profiles.csv. `favorites_anime` holds space-separated mal_ids;
+Output: data/raw/users.csv. `favorites_anime` holds space-separated mal_ids;
 `joined` and `birthday` are normalized to YYYY-MM-DD. Same resume/dedup semantics
 as crawl_ratings: rows append first, state marks second. Keep the column layout
 fixed: re-crawled rows are appended to the existing file and cleaning keeps the
@@ -22,7 +22,7 @@ from datetime import datetime
 
 import common
 
-OUT = common.RAW / "profiles.csv"
+OUT = common.RAW / "users.csv"
 STAT_KEYS = ["days_watched", "mean_score", "watching", "completed", "on_hold", "dropped",
              "plan_to_watch", "total_entries", "rewatched", "episodes_watched"]
 COLS = ["username", "gender", "birthday", "location", "joined", "favorites_anime",
